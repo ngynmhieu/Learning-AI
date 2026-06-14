@@ -5,10 +5,10 @@
 
 ## Responsibility
 
-The `chat` module owns one business capability: **turning a conversation history into a streamed LLM response**. It receives chat requests over HTTP, orchestrates the call to the model engine, and streams tokens back as Server-Sent Events.
+The `chat` module owns one business capability: **turning a conversation history into a streamed LLM response**. It receives chat requests over HTTP, calls the standalone **models service** over HTTP, and streams tokens back as Server-Sent Events.
 
 It does **not** own:
-- The model loading/inference internals → that is `shared/llm/` (the `QwenService` engine).
+- The model loading/inference internals → that is the standalone **models service**; the backend reaches it only through the `shared/llm/` `LlmClient`.
 - Configuration → `core/config.py`.
 - Authentication / "who is the user" → the future `auth` module's public surface.
 - Persistence of conversations → **not yet built** (see *Future*).
@@ -40,11 +40,11 @@ Holds the `APIRouter(tags=["chat"])` (no path prefix) and two endpoints:
 Stays thin per the API Layer Rules: it only maps the request into a service call and wraps the result in `StreamingResponse`. The message-dict conversion (`[{"role":..., "content":...}]`) currently in the handler should move **into the service** (`_normalize_messages` already exists there) so the router carries no transformation.
 
 ### `service.py` — orchestration
-`ChatService`, constructed with an injected `QwenService`. Responsibilities:
-- `stream_response(...)` — normalize messages, delegate to the engine's `stream_generate`, yield chunks.
-- `health_check()` — surface engine readiness.
+`ChatService`, constructed with an injected `LlmClient`. Responsibilities:
+- `stream_response(...)` — normalize messages, delegate to the client's `stream(...)` (which calls the models service `/v1/chat/completions`), yield content chunks.
+- `health_check()` — surface backend / models-service readiness.
 
-Depends only on the injected engine (constructor injection). Imports the engine from `shared/llm`, never the other way around.
+Depends only on the injected client (constructor injection). Imports the client from `shared/llm`, never the other way around.
 
 ### `schemas.py` — API boundary
 The Pydantic models exactly as they are today: `Message`, `ChatRequest`, `ChatResponse`, `StreamChunk`. These describe what crosses HTTP — not storage.
@@ -59,49 +59,50 @@ Holds the provider that hands a ready `ChatService` to the router via `Depends`.
 ```
 modules/chat/router.py
     └─→ modules/chat/service.py        (ChatService)
-            └─→ shared/llm/qwen_service.py   (QwenService engine)
+            └─→ shared/llm/client.py        (LlmClient)
+                    └─→ HTTP → models service   (/v1/chat/completions)
 
 modules/chat/router.py / service.py
     └─→ modules/chat/schemas.py
-    └─→ core/config.py                 (defaults like max_tokens)
+    └─→ core/config.py                 (models service URL, model id)
 ```
 
 `chat` imports from `shared/` and `core/`. It must never import from `main.py` or reach into another module's internals.
 
 ---
 
-## Migration Plan (from the current layer-based layout)
+## Migration Plan (replace the in-process engine with the models service)
 
-Ordered so the app stays runnable and imports resolve at each step.
+The model now runs in the standalone **models service**; the backend calls it
+over HTTP. Ordered so the app stays runnable at each step.
 
-1. **Create the engine's new home.** Move `app/llm/qwen_service.py` → `app/shared/llm/qwen_service.py`. Add `shared/__init__.py` and `shared/llm/__init__.py` (re-export `QwenService`). Delete the old `app/llm/`.
+1. **Add the client dependency.** Add `openai` to `requirements.txt` — an
+   OpenAI-compatible client; the models service speaks that format.
 
-2. **Create `modules/chat/`** with `__init__.py`.
+2. **Replace the engine with a client.** Rewrite `shared/llm/` so the
+   `QwenService` engine (loads/owns the model) becomes `LlmClient` — a thin
+   wrapper over the `openai` SDK pointed at `settings.models_service_url`. It
+   exposes `generate(...)` and `stream(...)` that call `/v1/chat/completions`.
+   No `torch` / `transformers` / `bitsandbytes` imports remain.
 
-3. **Move schemas.** `app/schemas/chat.py` → `modules/chat/schemas.py`. (The old top-level `schemas/` package can be removed once nothing imports it.)
+3. **Update config.** In `core/config.py`, drop the model *loading* settings
+   (`quantize`, model weights/name as a load target); add `models_service_url`
+   and `model_name` as the **model id to request** (e.g. `qwen3.5-9b`).
 
-4. **Move the service.** `app/services/chat_service.py` → `modules/chat/service.py`. Update its import to `from app.shared.llm import QwenService`. Pull the router's message-dict conversion into the service.
+4. **Update the service.** `ChatService` now depends on `LlmClient`; its
+   `stream_response` relays the client's streamed content. Router and schemas
+   are unchanged.
 
-5. **Move the routes.** `app/api/agent.py` → `modules/chat/router.py`. Update imports to the new sibling modules (`.schemas`, `.service`).
+5. **Slim `main.py`.** Remove the model-loading lifespan step
+   (`await qwen_service.load(...)`). Construct `LlmClient` (cheap) and wire
+   `ChatService`. The backend now boots in seconds.
 
-6. **Extract the DI wiring** out of the router into `modules/chat/dependencies.py`.
+6. **Drop the heavy deps.** Remove `torch`, `torchvision`, `transformers`,
+   `accelerate`, and `bitsandbytes` from the backend `requirements.txt` — the
+   backend no longer runs models.
 
-7. **Update `main.py`** (composition root):
-   - Import the engine from `app.shared.llm`, the router from `app.modules.chat`.
-   - In the lifespan startup, build `ChatService` and register it through `modules/chat/dependencies.py`.
-   - `app.include_router(chat_router)`.
-
-8. **Delete the now-empty** `app/api/`, `app/services/`, `app/schemas/`, `app/llm/` packages.
-
-9. **Smoke test**: start the server, hit `GET /health` and `POST /chat`, confirm streaming still works.
-
----
-
-## Improvements to fold in during the move (optional but recommended)
-
-- **Replace the global-singleton DI** (`_chat_service` module global + `set_chat_service`) with FastAPI `app.state` or a proper dependency provider. The current pattern works but hides wiring in module globals; `app.state.chat_service` read by a `Depends` provider is cleaner and testable.
-- **Migrate off deprecated `@app.on_event`** to the modern `lifespan` context manager while touching `main.py`.
-- **Push the router's transformation into the service** so the handler has zero logic (per API Layer Rules).
+7. **Smoke test end-to-end.** Start the models service (`run_models.bat`), then
+   the backend; hit `GET /health` and `POST /chat`, confirm streaming works.
 
 ---
 

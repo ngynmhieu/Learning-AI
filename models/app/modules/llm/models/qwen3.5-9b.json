@@ -1,0 +1,9 @@
+{
+  "id": "qwen3.5-9b",
+  "hf_repo": "Qwen/Qwen3.5-9B",
+  "quantize": "4bit",
+  "max_new_tokens": 1024,
+  "supports_thinking": true,
+  "description": "Qwen3.5 9B · 256K context · linear attention · 4-bit.",
+  "default": true
+}

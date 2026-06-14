@@ -1,4 +1,4 @@
-"""LLM engine — startup-lifecycle model singleton, shared infrastructure."""
-from .qwen_service import QwenService
+"""LLM client — talks to the standalone models service over HTTP."""
+from .client import LlmClient
 
-__all__ = ["QwenService"]
+__all__ = ["LlmClient"]

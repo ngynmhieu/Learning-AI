@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 import json
 
-from backend.app.core.config import settings
 from .schemas import ChatRequest
 from .service import ChatService
 from .dependencies import get_chat_service
@@ -25,7 +24,7 @@ async def chat(
         try:
             for chunk in chat_service.stream_response(
                 messages=request.messages,
-                max_new_tokens=request.max_tokens or settings.max_tokens,
+                max_new_tokens=request.max_tokens,
                 enable_thinking=request.enable_thinking or False,
             ):
                 yield f"data: {json.dumps({'chunk': chunk})}\n\n"

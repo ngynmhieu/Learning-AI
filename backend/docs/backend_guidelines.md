@@ -11,7 +11,7 @@ backend/
 ├── app/
 │   ├── main.py            # Composition root: app factory, lifespan, includes module routers
 │   ├── core/              # Cross-cutting INFRASTRUCTURE (config, database, security)
-│   ├── shared/            # Reusable, business-agnostic code (base classes, exceptions, the LLM engine)
+│   ├── shared/            # Reusable, business-agnostic code (base classes, exceptions, the LLM client)
 │   └── modules/           # Features — one folder per business domain
 │       ├── chat/
 │       └── auth/
@@ -61,22 +61,22 @@ Keep modules **flat**. Only break a piece into its own file/subfolder when it ge
 ## Folder Responsibilities
 
 ### `main.py` — Composition Root
-Creates the `FastAPI` instance, registers middleware (CORS), **includes each module's router**, and owns the startup/shutdown lifespan — loading and unloading the model, opening and closing the database, and wiring dependencies together. Modules never import `main.py`; the dependency only flows the other way.
+Creates the `FastAPI` instance, registers middleware (CORS), **includes each module's router**, and owns the startup/shutdown lifespan — building the LLM client (the model itself runs in the separate **models service**, not in-process), opening and closing the database, and wiring dependencies together. Modules never import `main.py`; the dependency only flows the other way.
 
 ### `core/` — Infrastructure
 Cross-cutting infrastructure that must exist before any feature works. Not business logic.
 
-- **`config.py`** — Loads `.env.backend` into a typed Pydantic `Settings` object. All configuration (model name, quantization flag, host, port, tokens, database URL, auth keys) is read here and **nowhere else**. Every other module imports from `core.config`, never reads env vars directly.
+- **`config.py`** — Loads `.env.backend` into a typed Pydantic `Settings` object. All configuration (models service URL, model id to request, host, port, database URL, auth keys) is read here and **nowhere else**. Every other module imports from `core.config`, never reads env vars directly. Quantization, model weights, and GPU settings are **no longer backend config** — they belong to the models service.
 - **`database.py`** — Database engine/session setup and the `get_session` dependency. Exposes the `Base` class every ORM model inherits from.
 
 > JWT verification is **not** a `core/` concern. Token validation is delegated to the auth provider inside the `auth` module's service — there is no hand-rolled `security.py`. See `docs/modules/auth.md`.
 
 ### `shared/` — Reusable, Business-Agnostic Code
-Code reused across modules that carries no business meaning: base classes, common exceptions, generic helpers, and the **LLM engine**.
+Code reused across modules that carries no business meaning: base classes, common exceptions, generic helpers, and the **LLM client**.
 
-- **`llm/`** — The `QwenService` singleton: owns the model and tokenizer lifecycle (loading, one-shot and streaming inference, teardown). It knows about tokenizer templates, quantization, threading, and special-token post-processing. It does **not** know about HTTP, chat history, or application logic. It lives in `shared/` because it is a startup-lifecycle singleton (like the database) and any future feature — an agent, a summarizer — would reuse the same engine.
+- **`llm/`** — The `LlmClient`: a thin, OpenAI-compatible HTTP client pointed at the standalone **models service** (`settings.models_service_url`). It exposes `generate(...)` / `stream(...)`, sending the conversation to the service's `/v1/chat/completions` endpoint and relaying the response (token stream for SSE). It does **not** load models, own a GPU, or know about chat history — the model lives entirely in the models service. It lives in `shared/` because it is reusable, business-agnostic infrastructure any feature (an agent, a summarizer) could call.
 
-  > If the engine ever becomes truly chat-only and no other feature could use it, it may move to `modules/chat/llm/`. Until then it is shared infrastructure.
+  > The backend no longer loads or runs the model in-process. The previous `QwenService` engine has moved out to the standalone **models service** (see `models/docs/models_guideline.md`); the backend only talks to it over HTTP. Consequently `torch`, `transformers`, and `bitsandbytes` are **no longer backend dependencies**.
 
 ### `modules/` — Features
 Each module is a self-contained business domain (a *bounded context*): `chat`, `auth`, and so on. It holds its own routes, logic, schemas, and persistence, and exposes a clean public surface to the rest of the app.
@@ -133,7 +133,7 @@ The service sits between the router and everything below it (LLM, database, exte
 class ChatService:
     async def generate_response(self, messages, max_tokens=None):
         normalized = self._normalize_messages(messages)
-        return await self._llm.generate_once(normalized, max_tokens or settings.max_tokens)
+        return await self._llm.generate(normalized, max_tokens)
 
     def _normalize_messages(self, messages):
         return [{"role": m.role, "content": m.content} for m in messages]
@@ -147,7 +147,7 @@ class PromptBuilder:
 
 # modules/chat/service.py  ← service stays thin
 class ChatService:
-    def __init__(self, llm: QwenService, prompt_builder: PromptBuilder):
+    def __init__(self, llm: LlmClient, prompt_builder: PromptBuilder):
         self._llm = llm
         self._prompt_builder = prompt_builder
 ```
@@ -185,7 +185,7 @@ All environment access goes through `core/config.py`. No module reads `os.enviro
 HTTP Request
   └─→ modules/<feature>/router.py        (thin orchestration)
         └─→ modules/<feature>/service.py (business logic)
-              ├─→ shared/llm/            (model inference → SSE stream)
+              ├─→ shared/llm/            (HTTP call to models service → SSE stream)
               └─→ core/database          (persistence)
 ```
 
@@ -193,7 +193,7 @@ HTTP Request
 
 - `modules/chat/router.py` receives the request, gets the current user via `Depends`, delegates to the service.
 - `modules/chat/service.py` saves the user message, streams the LLM response, then saves the assistant reply.
-- `shared/llm/` performs inference and streams tokens — unaware of HTTP or storage.
+- `shared/llm/` (the `LlmClient`) calls the models service over HTTP and relays the token stream — unaware of chat history or storage.
 - `modules/chat/models.py` defines the `conversations` and `messages` tables.
 - `modules/auth/dependencies.py` provides `get_current_user`, consumed by chat through auth's public surface.
 
