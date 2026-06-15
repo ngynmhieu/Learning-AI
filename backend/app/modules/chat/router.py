@@ -31,6 +31,7 @@ async def chat(
                 messages=request.messages,
                 max_new_tokens=request.max_tokens,
                 enable_thinking=request.enable_thinking or False,
+                model=request.model,
             ):
                 yield f"data: {json.dumps({'type': chunk_type, 'chunk': chunk_text})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"

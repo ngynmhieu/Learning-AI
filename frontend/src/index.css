@@ -286,6 +286,9 @@ code {
     50% { transform: translate(-50%, -50%) scale(1.15); }
     100% { transform: translate(-50%, -50%) scale(0.9); }
   }
+  @keyframes shimmer {
+    to { background-position: 200% center; }
+  }
   * {
     @apply border-border outline-ring/50;}
   body {

@@ -10,7 +10,7 @@ export function createMessage(role: Role, content: string, status: MessageStatus
   };
 }
 
-export function updateLastMessage(messages: Message[], patch: Partial<Pick<Message, "content" | "status">>): Message[] {
+export function updateLastMessage(messages: Message[], patch: Partial<Pick<Message, "content" | "thinking" | "status">>): Message[] {
   if (messages.length === 0) return messages;
   return messages.map((msg, i) =>
     i === messages.length - 1 ? { ...msg, ...patch } : msg

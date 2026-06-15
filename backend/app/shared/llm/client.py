@@ -20,9 +20,10 @@ class LlmClient:
         self._client = OpenAI(base_url=base_url, api_key=api_key or "not-needed")
 
     def _create_kwargs(self, messages: List[MessageDict], max_tokens: int | None,
-                       enable_thinking: bool, stream: bool) -> dict:
+                       enable_thinking: bool, stream: bool, model: str | None = None) -> dict:
         kwargs: dict = {
-            "model": self._model,
+            # Per-request model override; falls back to the configured default.
+            "model": model or self._model,
             "messages": messages,
             "stream": stream,
             # Model-specific knobs ride along via extra_body (OpenAI passthrough).
@@ -33,20 +34,20 @@ class LlmClient:
         return kwargs
 
     def generate(self, messages: List[MessageDict], max_tokens: int | None = None,
-                 enable_thinking: bool = False) -> Tuple[str, str]:
+                 enable_thinking: bool = False, model: str | None = None) -> Tuple[str, str]:
         """Returns (thinking, text). thinking is empty when enable_thinking=False."""
         resp = self._client.chat.completions.create(
-            **self._create_kwargs(messages, max_tokens, enable_thinking, stream=False)
+            **self._create_kwargs(messages, max_tokens, enable_thinking, stream=False, model=model)
         )
         extra = resp.choices[0].message.model_extra or {}
         thinking = extra.get("thinking", "") if enable_thinking else ""
         return (thinking, extra.get("text", ""))
 
     def stream(self, messages: List[MessageDict], max_tokens: int | None = None,
-               enable_thinking: bool = False) -> Iterator[Tuple[str, str]]:
+               enable_thinking: bool = False, model: str | None = None) -> Iterator[Tuple[str, str]]:
         """Yields (type, chunk) tuples where type is 'thinking' or 'text'."""
         stream = self._client.chat.completions.create(
-            **self._create_kwargs(messages, max_tokens, enable_thinking, stream=True)
+            **self._create_kwargs(messages, max_tokens, enable_thinking, stream=True, model=model)
         )
         for event in stream:
             extra = event.choices[0].delta.model_extra or {}

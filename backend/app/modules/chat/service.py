@@ -25,12 +25,14 @@ class ChatService:
         messages: List[Message],
         max_new_tokens: int | None = None,
         enable_thinking: bool = False,
+        model: str | None = None,
     ) -> Iterator[Tuple[str, str]]:
         """Stream (type, chunk) tuples where type is 'thinking' or 'text'."""
         yield from self._llm.stream(
             messages=self._normalize_messages(messages),
             max_tokens=max_new_tokens,
             enable_thinking=enable_thinking,
+            model=model,
         )
 
     def list_models(self) -> Dict[str, Any]:

@@ -9,6 +9,7 @@ export interface ChatRequest {
   messages: ChatMessage[];
   max_tokens?: number;
   enable_thinking?: boolean;
+  model?: string;
 }
 
 export interface ChatResponse {
@@ -17,8 +18,21 @@ export interface ChatResponse {
 }
 
 export interface StreamChunk {
+  type?: "thinking" | "text";
   chunk?: string;
+  done?: boolean;
   error?: string;
+}
+
+export interface ModelInfo {
+  id: string;
+  description: string;
+  loaded: boolean;
+}
+
+export interface ModelsResponse {
+  count: number;
+  models: ModelInfo[];
 }
 
 export const chatApi = {
@@ -57,5 +71,14 @@ export const chatApi = {
         }
       }
     }
+  },
+
+  async listModels(): Promise<ModelsResponse> {
+    const res = await fetchWithToken("/models");
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(error.detail ?? "Failed to load models");
+    }
+    return res.json();
   },
 };

@@ -170,3 +170,91 @@ State lives in `ChatPage` and is passed down — no global store needed at this 
 - Streaming text should append smoothly without layout jumps
 - Transcript padding should leave breathing room above the input bar
 - Mobile: input bar stays pinned to bottom using `sticky` or `fixed`
+
+---
+
+## Planned: extended-thinking toggle + model count (proposal)
+
+> **Status: proposal.** Documents the plan before implementation. Two user-facing
+> additions; only one of them touches the backend.
+
+### 1. Extended-thinking on/off — a UI toggle (no new API)
+
+`enable_thinking` already exists end-to-end: it is a field on `ChatRequest`
+(`shared/api/chatApi.ts`) sent to `POST /chat`. Today `useSendMessage` hardcodes
+it to `true`. The toggle just makes that boolean user-controlled — **no backend
+change, no new endpoint** (stateless, per-request, like Claude/ChatGPT reasoning
+toggles).
+
+**Wiring (state lives in `ChatPage`, passed down — matches the existing pattern):**
+
+```
+ChatPage
+  ├── thinkingEnabled: boolean  (useState, default false)
+  ├── <ChatInput ... thinkingEnabled onToggleThinking={setThinkingEnabled} />
+  └── useSendMessage({ ..., thinkingEnabled })
+        └── sendMessage() → chatApi.stream({ ..., enable_thinking: thinkingEnabled })
+```
+
+**Files:**
+| File | Change |
+|---|---|
+| `pages/ChatPage.tsx` | add `thinkingEnabled` state; pass to input + send hook |
+| `widgets/ChatInput.tsx` | render a switch (label e.g. "Extended thinking"); call `onToggleThinking` |
+| `features/send-message/useSendMessage.ts` | replace hardcoded `enable_thinking: true` with the passed-in value |
+| `shared/ui/` | add a `Switch` primitive (shadcn `switch`) if none exists, exported via `shared/ui/index.ts` |
+
+`shared/api/chatApi.ts` is **unchanged** — `enable_thinking?` is already in
+`ChatRequest`.
+
+The toggle belongs in the send-message flow, so a lightweight local-state +
+prop approach is preferred over a dedicated `features/toggle-thinking/` slice
+(a single boolean does not earn its own feature folder).
+
+### 2. Model count — `GET /models`
+
+Calls the planned backend `GET /models` (see the *Planned: `GET /models`* section
+in `backend/docs/modules/chat.md`) and surfaces the count in the chat UI (e.g. a
+small badge near the greeting or header: "*N models available*").
+
+**Placement of the caller:** add `listModels()` to the **existing
+`shared/api/chatApi.ts`** — one file per backend domain. `/models` is served by
+the chat module and chat is its only consumer, so it belongs with the other chat
+callers, not a separate `systemApi.ts`. Uses `fetchWithToken` like `stream()`.
+
+```ts
+// add to shared/api/chatApi.ts
+export interface ModelInfo { id: string; description: string; loaded: boolean; }
+export interface ModelsResponse { count: number; models: ModelInfo[]; }
+
+export const chatApi = {
+  // ...existing stream()...
+  async listModels(): Promise<ModelsResponse> {
+    const res = await fetchWithToken("/models");
+    if (!res.ok) throw new Error("Failed to load models");
+    return res.json();
+  },
+};
+```
+
+**Consumption:** a small `useModels()` hook in `modules/chat/shared/` (or inline
+`useEffect` in `ChatPage`) fetches once on mount and exposes `count`. A presentational
+badge in `ChatGreeting` (or the header) shows it.
+
+**Files:**
+| File | Change |
+|---|---|
+| `shared/api/chatApi.ts` | add `listModels()` + `ModelInfo`/`ModelsResponse` types |
+| `modules/chat/shared/useModels.ts` | new — fetch + expose `count`, `models` |
+| `widgets/ChatGreeting.tsx` (or header) | render the count badge |
+
+### Build order
+
+| Step | Change | Depends on |
+|---|---|---|
+| 1 | Backend `system` module + `GET /models` | — |
+| 2 | `shared/ui` `Switch` primitive | — |
+| 3 | `useSendMessage` reads `thinkingEnabled` | — |
+| 4 | `ChatInput` switch + `ChatPage` state | 2, 3 |
+| 5 | `shared/api/systemApi.ts` | 1 |
+| 6 | `useModels` + count badge | 5 |

@@ -14,6 +14,7 @@ class ChatRequest(BaseModel):
     messages: List[Message] = Field(..., description="Chat history including the latest user message")
     max_tokens: Optional[int] = Field(None, description="Max tokens to generate (uses default if not specified)")
     enable_thinking: Optional[bool] = Field(False, description="Enable extended thinking mode")
+    model: Optional[str] = Field(None, description="Model id to use (falls back to the configured default)")
 
 
 class ChatResponse(BaseModel):

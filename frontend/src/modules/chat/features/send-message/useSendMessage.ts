@@ -6,6 +6,8 @@ import type { Message } from "../../entities";
 interface UseSendMessageProps {
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  enableThinking: boolean;
+  model: string | null;
 }
 
 interface UseSendMessageReturn {
@@ -14,7 +16,7 @@ interface UseSendMessageReturn {
   stopStreaming: () => void;
 }
 
-export function useSendMessage({ messages, setMessages }: UseSendMessageProps): UseSendMessageReturn {
+export function useSendMessage({ messages, setMessages, enableThinking, model }: UseSendMessageProps): UseSendMessageReturn {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -39,15 +41,24 @@ export function useSendMessage({ messages, setMessages }: UseSendMessageProps): 
         {
           messages: [...history, { role: "user", content }],
           max_tokens: 1024,
-          enable_thinking: false,
+          enable_thinking: enableThinking,
+          ...(model ? { model } : {}),
         },
         abortRef.current.signal
       )) {
         if (chunk.error) throw new Error(chunk.error);
 
-        if (chunk.chunk) {
+        if (chunk.chunk && chunk.type === "thinking") {
           setMessages((prev) =>
-            updateLastMessage(prev, { content: prev[prev.length - 1].content + chunk.chunk })
+            updateLastMessage(prev, {
+              thinking: (prev[prev.length - 1].thinking ?? "") + chunk.chunk,
+            })
+          );
+        } else if (chunk.chunk) {
+          setMessages((prev) =>
+            updateLastMessage(prev, {
+              content: prev[prev.length - 1].content + chunk.chunk,
+            })
           );
         }
       }
@@ -63,7 +74,7 @@ export function useSendMessage({ messages, setMessages }: UseSendMessageProps): 
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [isStreaming, messages, setMessages]);
+  }, [isStreaming, messages, setMessages, enableThinking, model]);
 
   return { isStreaming, sendMessage, stopStreaming };
 }
