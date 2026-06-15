@@ -51,7 +51,10 @@ class LlmService:
                 media_type="text/event-stream",
             )
 
-        text = self._manager.generate(messages, req.max_tokens, **opts)
+        result = self._manager.generate(messages, req.max_tokens, **opts)
+        message: dict = {"role": "assistant", "text": result.text}
+        if result.thinking:
+            message["thinking"] = result.thinking
         return {
             "id": completion_id,
             "object": "chat.completion",
@@ -60,7 +63,7 @@ class LlmService:
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": text},
+                    "message": message,
                     "finish_reason": "stop",
                 }
             ],
@@ -68,14 +71,15 @@ class LlmService:
 
     def _sse(self, req, messages, opts, created, completion_id):
         try:
-            for chunk in self._manager.stream(messages, req.max_tokens, **opts):
+            for chunk_type, chunk_text in self._manager.stream(messages, req.max_tokens, **opts):
+                delta = {"thinking": chunk_text} if chunk_type == "thinking" else {"text": chunk_text}
                 payload = {
                     "id": completion_id,
                     "object": "chat.completion.chunk",
                     "created": created,
                     "model": req.model,
                     "choices": [
-                        {"index": 0, "delta": {"content": chunk}, "finish_reason": None}
+                        {"index": 0, "delta": delta, "finish_reason": None}
                     ],
                 }
                 yield f"data: {json.dumps(payload)}\n\n"
