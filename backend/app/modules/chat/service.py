@@ -1,5 +1,5 @@
 """Chat orchestration service — normalizes history and relays the models service."""
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterator, List, Tuple
 
 from backend.app.shared.llm import LlmClient
 from .schemas import Message
@@ -25,14 +25,18 @@ class ChatService:
         messages: List[Message],
         max_new_tokens: int | None = None,
         enable_thinking: bool = False,
-    ) -> Iterator[str]:
-        """Stream the assistant's response chunk by chunk from the models service."""
-        for chunk in self._llm.stream(
+    ) -> Iterator[Tuple[str, str]]:
+        """Stream (type, chunk) tuples where type is 'thinking' or 'text'."""
+        yield from self._llm.stream(
             messages=self._normalize_messages(messages),
             max_tokens=max_new_tokens,
             enable_thinking=enable_thinking,
-        ):
-            yield chunk
+        )
+
+    def list_models(self) -> Dict[str, Any]:
+        """Return the available models and their count."""
+        models = self._llm.list_models()
+        return {"count": len(models), "models": models}
 
     def health_check(self) -> Dict[str, Any]:
         return {"status": "ok", **self._llm.health()}

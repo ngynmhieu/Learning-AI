@@ -106,6 +106,83 @@ over HTTP. Ordered so the app stays runnable at each step.
 
 ---
 
+## Planned: `GET /models` (proposal, not yet built)
+
+> **Status: proposal.** The frontend needs to know **how many models the LLM
+> manager has** (to show the count and, later, a model picker). The models being
+> listed are exactly the chat model, and `chat` is the only consumer — so this
+> lives **in the chat module**, not a separate one. (A dedicated `system` module
+> was considered and rejected as premature: one proxy endpoint, one consumer.
+> If health/readiness/model-switch endpoints accumulate later, extract `system`
+> then.)
+
+### The endpoint
+
+`GET /models` → the catalog the models service reports, plus a count.
+
+```json
+{
+  "count": 1,
+  "models": [
+    { "id": "qwen3.5-9b", "description": "Qwen3.5 9B · …", "loaded": true }
+  ]
+}
+```
+
+### Changes (all within `chat` + the shared client)
+
+**`shared/llm/client.py`** — add one business-agnostic method. The catalog comes
+from the models service's `GET /v1/models`, already reachable via the SDK
+(`health()` uses `self._client.models.list()` today). Custom fields arrive as SDK
+extras (`model_extra`):
+
+```python
+def list_models(self) -> list[dict]:
+    resp = self._client.models.list()
+    return [
+        {
+            "id": m.id,
+            "description": (m.model_extra or {}).get("description", ""),
+            "loaded": (m.model_extra or {}).get("loaded", False),
+        }
+        for m in resp.data
+    ]
+```
+
+**`modules/chat/service.py`** — `ChatService` already holds the injected
+`LlmClient`; add a thin method:
+
+```python
+def list_models(self) -> dict:
+    models = self._llm.list_models()
+    return {"count": len(models), "models": models}
+```
+
+**`modules/chat/schemas.py`** — add `ModelInfo` (`id`, `description`, `loaded`)
+and `ModelsResponse` (`count`, `models`).
+
+**`modules/chat/router.py`** — one thin endpoint (the router has no path prefix,
+alongside `/chat` and `/health`):
+
+```python
+@router.get("/models", response_model=ModelsResponse)
+async def list_models(chat_service: ChatService = Depends(get_chat_service)):
+    return chat_service.list_models()
+```
+
+No `main.py` change — `ChatService` and its `LlmClient` are already wired.
+
+### Dependency flow (unchanged shape)
+
+```
+modules/chat/router.py (GET /models)
+    └─→ modules/chat/service.py (ChatService.list_models)
+            └─→ shared/llm/client.py (LlmClient.list_models)
+                    └─→ HTTP → models service (/v1/models)
+```
+
+---
+
 ## Future (when persistence + auth arrive)
 
 - `models.py` — `conversations` and `messages` tables (see the auth & persistence plan).

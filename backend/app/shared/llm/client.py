@@ -6,7 +6,7 @@ are no torch/transformers imports; this is a thin HTTP client pointed at
 """
 from __future__ import annotations
 
-from typing import Dict, Iterator, List
+from typing import Dict, Iterator, List, Tuple
 
 from openai import OpenAI
 
@@ -33,21 +33,45 @@ class LlmClient:
         return kwargs
 
     def generate(self, messages: List[MessageDict], max_tokens: int | None = None,
-                 enable_thinking: bool = False) -> str:
+                 enable_thinking: bool = False) -> Tuple[str, str]:
+        """Returns (thinking, text). thinking is empty when enable_thinking=False."""
         resp = self._client.chat.completions.create(
             **self._create_kwargs(messages, max_tokens, enable_thinking, stream=False)
         )
-        return resp.choices[0].message.content or ""
+        extra = resp.choices[0].message.model_extra or {}
+        thinking = extra.get("thinking", "") if enable_thinking else ""
+        return (thinking, extra.get("text", ""))
 
     def stream(self, messages: List[MessageDict], max_tokens: int | None = None,
-               enable_thinking: bool = False) -> Iterator[str]:
+               enable_thinking: bool = False) -> Iterator[Tuple[str, str]]:
+        """Yields (type, chunk) tuples where type is 'thinking' or 'text'."""
         stream = self._client.chat.completions.create(
             **self._create_kwargs(messages, max_tokens, enable_thinking, stream=True)
         )
         for event in stream:
-            delta = event.choices[0].delta.content
-            if delta:
-                yield delta
+            extra = event.choices[0].delta.model_extra or {}
+            thinking = extra.get("thinking")
+            if thinking:
+                yield ("thinking", thinking)
+            text = extra.get("text")
+            if text:
+                yield ("text", text)
+
+    def list_models(self) -> List[dict]:
+        """Return the models service catalog as plain dicts.
+
+        The models service adds `description`/`loaded` beyond the OpenAI Model
+        fields; the SDK surfaces those non-standard fields via `model_extra`.
+        """
+        resp = self._client.models.list()
+        return [
+            {
+                "id": model.id,
+                "description": (model.model_extra or {}).get("description", ""),
+                "loaded": (model.model_extra or {}).get("loaded", False),
+            }
+            for model in resp.data
+        ]
 
     def health(self) -> dict:
         """Report the configured model and whether the models service is reachable."""

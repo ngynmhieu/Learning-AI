@@ -27,3 +27,16 @@ class StreamChunk(BaseModel):
     """A single chunk of streamed response."""
     chunk: str = Field(..., description="Token or partial text chunk")
     elapsed_time: Optional[float] = Field(None, description="Elapsed time so far")
+
+
+class ModelInfo(BaseModel):
+    """One model in the models service catalog."""
+    id: str = Field(..., description="Model id clients can request")
+    description: str = Field("", description="Human-readable description")
+    loaded: bool = Field(False, description="Whether this model is currently resident")
+
+
+class ModelsResponse(BaseModel):
+    """Response body for the models listing endpoint."""
+    count: int = Field(..., description="Number of models available")
+    models: List[ModelInfo] = Field(..., description="The available models")
