@@ -9,7 +9,7 @@ from supabase import create_client
 from .core.config import settings
 from .shared.llm import LlmClient
 from .modules.chat import router as chat_router
-from .modules.chat.service import ChatService
+from .modules.chat.services import ModelService
 from .modules.auth import router as auth_router
 from .modules.auth.service import AuthService
 
@@ -31,7 +31,10 @@ async def lifespan(app: FastAPI):
         model=settings.model_name,
         api_key=settings.models_service_api_key,
     )
-    app.state.chat_service = ChatService(llm_client)
+    # llm_client is shared: ModelService holds it directly; the request-scoped
+    # ChatService pulls it from app.state per request.
+    app.state.llm_client = llm_client
+    app.state.model_service = ModelService(llm_client)
 
     supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
     app.state.auth_service = AuthService(supabase_client)
@@ -40,8 +43,9 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down backend...")
-    app.state.chat_service = None
+    app.state.model_service = None
     app.state.auth_service = None
+    app.state.llm_client = None
 
 
 def create_app() -> FastAPI:

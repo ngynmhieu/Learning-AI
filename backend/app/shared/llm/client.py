@@ -6,18 +6,23 @@ are no torch/transformers imports; this is a thin HTTP client pointed at
 """
 from __future__ import annotations
 
-from typing import Dict, Iterator, List, Tuple
+from typing import AsyncIterator, Dict, List, Tuple
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 MessageDict = Dict[str, str]
 
 
 class LlmClient:
+    """Async client. All methods are coroutines/async generators so the blocking
+    network I/O runs on the event loop's transport rather than freezing it — this is
+    what lets the SSE stream flush each chunk as it arrives.
+    """
+
     def __init__(self, base_url: str, model: str, api_key: str = "") -> None:
         self._model = model
         # The local models service ignores the key, but the SDK requires a string.
-        self._client = OpenAI(base_url=base_url, api_key=api_key or "not-needed")
+        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key or "not-needed")
 
     def _create_kwargs(self, messages: List[MessageDict], max_tokens: int | None,
                        enable_thinking: bool, stream: bool, model: str | None = None) -> dict:
@@ -33,23 +38,23 @@ class LlmClient:
             kwargs["max_tokens"] = max_tokens
         return kwargs
 
-    def generate(self, messages: List[MessageDict], max_tokens: int | None = None,
-                 enable_thinking: bool = False, model: str | None = None) -> Tuple[str, str]:
+    async def generate(self, messages: List[MessageDict], max_tokens: int | None = None,
+                       enable_thinking: bool = False, model: str | None = None) -> Tuple[str, str]:
         """Returns (thinking, text). thinking is empty when enable_thinking=False."""
-        resp = self._client.chat.completions.create(
+        resp = await self._client.chat.completions.create(
             **self._create_kwargs(messages, max_tokens, enable_thinking, stream=False, model=model)
         )
         extra = resp.choices[0].message.model_extra or {}
         thinking = extra.get("thinking", "") if enable_thinking else ""
         return (thinking, extra.get("text", ""))
 
-    def stream(self, messages: List[MessageDict], max_tokens: int | None = None,
-               enable_thinking: bool = False, model: str | None = None) -> Iterator[Tuple[str, str]]:
+    async def stream(self, messages: List[MessageDict], max_tokens: int | None = None,
+                     enable_thinking: bool = False, model: str | None = None) -> AsyncIterator[Tuple[str, str]]:
         """Yields (type, chunk) tuples where type is 'thinking' or 'text'."""
-        stream = self._client.chat.completions.create(
+        stream = await self._client.chat.completions.create(
             **self._create_kwargs(messages, max_tokens, enable_thinking, stream=True, model=model)
         )
-        for event in stream:
+        async for event in stream:
             extra = event.choices[0].delta.model_extra or {}
             thinking = extra.get("thinking")
             if thinking:
@@ -58,13 +63,13 @@ class LlmClient:
             if text:
                 yield ("text", text)
 
-    def list_models(self) -> List[dict]:
+    async def list_models(self) -> List[dict]:
         """Return the models service catalog as plain dicts.
 
         The models service adds `description`/`loaded` beyond the OpenAI Model
         fields; the SDK surfaces those non-standard fields via `model_extra`.
         """
-        resp = self._client.models.list()
+        resp = await self._client.models.list()
         return [
             {
                 "id": model.id,
@@ -74,10 +79,10 @@ class LlmClient:
             for model in resp.data
         ]
 
-    def health(self) -> dict:
+    async def health(self) -> dict:
         """Report the configured model and whether the models service is reachable."""
         try:
-            self._client.models.list()
+            await self._client.models.list()
             reachable = True
         except Exception:
             reachable = False
