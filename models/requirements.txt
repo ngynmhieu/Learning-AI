@@ -1,0 +1,16 @@
+# PyTorch with CUDA 12.8 (Blackwell / RTX 50xx, sm_120).
+# The +cu128 builds come from the PyTorch index below, not PyPI. Pinned (not via
+# a global --pre) so the rest of the stack installs as stable releases.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+
+# Inference stack (recent enough to know newer archs like qwen3_5)
+transformers>=5.10
+huggingface-hub
+accelerate
+bitsandbytes==0.49.*
+
+# Service / API
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0

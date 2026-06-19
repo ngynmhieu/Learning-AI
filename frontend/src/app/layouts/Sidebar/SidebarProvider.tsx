@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { SidebarContext } from "./useSidebar";
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
 
   const toggle = useCallback(() => setOpen((v) => !v), []);
 

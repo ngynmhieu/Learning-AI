@@ -1,18 +1,12 @@
---extra-index-url https://download.pytorch.org/whl/nightly/cu128
---pre
-
-torch
-torchvision
-torchaudio
-transformers>=4.51.0
-huggingface-hub
-accelerate
-python-dotenv
-bitsandbytes==0.49.*
+# LLM access — the backend calls the standalone models service over an
+# OpenAI-compatible API. No torch/transformers/bitsandbytes here anymore;
+# the model runs in the models service.
+openai
 
 # Server / API
 fastapi>=0.95.0
 uvicorn[standard]>=0.22.0
+python-dotenv
 
 # Database (Supabase Postgres via session pooler)
 sqlalchemy[asyncio]>=2.0

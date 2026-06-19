@@ -26,6 +26,14 @@ export default defineConfig({
         target: `http://${process.env.BACKEND_HOST ?? 'localhost'}:${process.env.BACKEND_PORT ?? '8000'}`,
         changeOrigin: true,
       },
+      '/models': {
+        target: `http://${process.env.BACKEND_HOST ?? 'localhost'}:${process.env.BACKEND_PORT ?? '8000'}`,
+        changeOrigin: true,
+      },
+      '/conversations': {
+        target: `http://${process.env.BACKEND_HOST ?? 'localhost'}:${process.env.BACKEND_PORT ?? '8000'}`,
+        changeOrigin: true,
+      },
       '/auth': {
         target: `http://${process.env.BACKEND_HOST ?? 'localhost'}:${process.env.BACKEND_PORT ?? '8000'}`,
         changeOrigin: true,

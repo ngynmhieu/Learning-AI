@@ -1,29 +1,78 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { useParams, useLocation } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
+import { useModels } from "../shared";
+import { useChatSession } from "../entities";
 import { useSendMessage } from "../features";
-import { ChatTranscript, ChatInput, ChatGreeting } from "../widgets";
-import type { Message } from "../entities";
+import { ChatTranscript, ChatTranscriptSkeleton, ChatInput, ChatGreeting } from "../widgets";
 
 export function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const { isStreaming, sendMessage, stopStreaming } = useSendMessage({ messages, setMessages });
+  // Always present: ChatPage only renders under /c/:conversationId ("/" redirects in).
+  const { conversationId } = useParams();
+  const routeId = conversationId as string;
+  // Set by NewChatRedirect for a freshly minted chat → skip the history fetch.
+  const location = useLocation();
+  const isNew = (location.state as { isNew?: boolean } | null)?.isNew ?? false;
+
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const { models, count: modelCount } = useModels();
+  const effectiveModel = selectedModel ?? models.find((m) => m.loaded)?.id ?? models[0]?.id ?? null;
+
+  // A view onto this one conversation's session; the send workflow is separate.
+  const { messages, status } = useChatSession(routeId, isNew);
+  const { send, stop } = useSendMessage(routeId);
+
+  const isStreaming = status === "streaming";
+  const isLoading = status === "loading";
   const hasMessages = messages.length > 0;
+
+  const handleSend = useCallback(
+    (content: string) => send({ content, model: effectiveModel, enableThinking: thinkingEnabled }),
+    [send, effectiveModel, thinkingEnabled]
+  );
+  const toggleThinking = () => setThinkingEnabled((v) => !v);
 
   return (
     <div className="relative h-full overflow-hidden">
-
-      {/* Empty state: greeting + input centered; exits with fade and slide up */}
+      {/* Empty state: greeting + input centered; exits with fade and slide up.
+          Suppressed while history is loading so the greeting doesn't flash. */}
       <AnimatePresence>
-        {!hasMessages && (
+        {!hasMessages && !isLoading && (
           <motion.div
             key="empty-state"
-            className="absolute inset-0 flex flex-col items-center justify-center gap-4"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-4 mb-20"
             exit={{ opacity: 0, y: -16, transition: { duration: 0.2 } }}
           >
-            <ChatGreeting />
+            <ChatGreeting modelCount={modelCount} />
             <motion.div layoutId="chat-input" className="w-full">
-              <ChatInput isStreaming={isStreaming} onSend={sendMessage} onStop={stopStreaming} />
+              <ChatInput
+                isStreaming={isStreaming}
+                thinkingEnabled={thinkingEnabled}
+                onToggleThinking={toggleThinking}
+                models={models}
+                selectedModel={effectiveModel}
+                onSelectModel={setSelectedModel}
+                onSend={handleSend}
+                onStop={stop}
+              />
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Loading state: skeleton transcript while history is fetched (no messages yet). */}
+      <AnimatePresence>
+        {!hasMessages && isLoading && (
+          <motion.div
+            key="skeleton"
+            className="absolute inset-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            transition={{ duration: 0.2 }}
+          >
+            <ChatTranscriptSkeleton />
           </motion.div>
         )}
       </AnimatePresence>
@@ -48,11 +97,19 @@ export function ChatPage() {
             className="absolute bottom-0 inset-x-0 z-10"
             transition={{ type: "spring", stiffness: 350, damping: 35 }}
           >
-            <ChatInput isStreaming={isStreaming} onSend={sendMessage} onStop={stopStreaming} />
+            <ChatInput
+              isStreaming={isStreaming}
+              thinkingEnabled={thinkingEnabled}
+              onToggleThinking={toggleThinking}
+              models={models}
+              selectedModel={effectiveModel}
+              onSelectModel={setSelectedModel}
+              onSend={handleSend}
+              onStop={stop}
+            />
           </motion.div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }

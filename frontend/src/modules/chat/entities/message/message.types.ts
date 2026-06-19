@@ -5,6 +5,7 @@ export interface Message {
   id: string;
   role: Role;
   content: string;
+  thinking?: string;
   status: MessageStatus;
   createdAt: number;
 }

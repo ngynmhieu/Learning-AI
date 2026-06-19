@@ -7,9 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 
 from .core.config import settings
-from .shared.llm import QwenService
+from .shared.llm import LlmClient
 from .modules.chat import router as chat_router
-from .modules.chat.service import ChatService
+from .modules.chat.services import ModelService
 from .modules.auth import router as auth_router
 from .modules.auth.service import AuthService
 
@@ -19,17 +19,22 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the model and wire services on startup; tear down on shutdown."""
-    logger.info("Starting up Qwen Chat Server...")
+    """Wire services on startup; tear down on shutdown.
 
-    qwen_service = QwenService.get_instance()
-    await qwen_service.load(
-        model_name=settings.model_name,
-        quantize=settings.quantize,
+    The model is NOT loaded here — it runs in the standalone models service. The
+    backend only builds a thin HTTP client to it, so startup is instant.
+    """
+    logger.info("Starting up backend...")
+
+    llm_client = LlmClient(
+        base_url=settings.models_service_url,
+        model=settings.model_name,
+        api_key=settings.models_service_api_key,
     )
-
-    app.state.qwen_service = qwen_service
-    app.state.chat_service = ChatService(qwen_service)
+    # llm_client is shared: ModelService holds it directly; the request-scoped
+    # ChatService pulls it from app.state per request.
+    app.state.llm_client = llm_client
+    app.state.model_service = ModelService(llm_client)
 
     supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
     app.state.auth_service = AuthService(supabase_client)
@@ -37,17 +42,16 @@ async def lifespan(app: FastAPI):
     logger.info("FastAPI app ready")
     yield
 
-    logger.info("Shutting down Qwen Chat Server...")
-    await qwen_service.close()
-    app.state.qwen_service = None
-    app.state.chat_service = None
+    logger.info("Shutting down backend...")
+    app.state.model_service = None
     app.state.auth_service = None
+    app.state.llm_client = None
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Qwen Chat Server",
-        description="FastAPI server for Qwen language model chat with streaming support",
+        description="FastAPI backend; LLM inference is delegated to the models service",
         version="0.1.0",
         lifespan=lifespan,
     )
@@ -70,7 +74,7 @@ def create_app() -> FastAPI:
             "version": "0.1.0",
             "docs_url": "/docs",
             "model": settings.model_name,
-            "quantized": settings.quantize,
+            "models_service": settings.models_service_url,
         }
 
     logger.info("FastAPI app configured")
