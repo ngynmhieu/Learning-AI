@@ -40,7 +40,7 @@ function ModelMenuItem({
 
       <AnimatePresence>
         {hover && (
-          <Dropdown position="left-full top-0 ml-1">
+          <Dropdown position="left-full bottom-0 ml-1">
             {models.map((m) => (
               <DropdownItem key={m.id} onClick={() => onSelect(m.id)}>
                 <span className="flex-1 text-left truncate">{m.id}</span>
@@ -91,7 +91,7 @@ function ComposerMenu({
         aria-label="Options"
         aria-expanded={open}
         whileTap={{ scale: 0.92 }}
-        className={`shrink-0 w-9 h-9 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+        className={`shrink-0 w-9 h-9 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
           open
             ? "border-[var(--owl-orange)]/50 bg-[var(--accent-bg)] text-[var(--owl-orange-deep)]"
             : "border-[var(--owl-border)] text-[var(--owl-brown-muted)] hover:text-[var(--owl-brown-dark)] hover:border-[var(--owl-brown-mid)]/50"

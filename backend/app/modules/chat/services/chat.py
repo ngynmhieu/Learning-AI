@@ -51,20 +51,24 @@ class ChatService:
 
         Yields wire events: meta (conversation id) → thinking/text chunks → done. Any
         failure yields an error event and rolls back. New conversations are created
-        with a fallback title; the real title is generated out-of-band by the
-        frontend via POST /conversations/{id}/title once the stream ends.
+        (upserted on the client-provided id) with a fallback title; the real title is
+        generated out-of-band by the frontend via POST /conversations/{id}/title once
+        the stream ends.
         """
         try:
-            is_new = request.conversation_id is None
             first_user = self._latest_user_text(request.messages)
 
-            if is_new:
-                conversation = await self._repo.create(self._user_id, self._fallback_title(first_user))
-            else:
+            # The id is minted by the frontend, so a first message arrives with an id we
+            # don't have yet — create it (upsert). An existing id appends to that thread.
+            conversation = None
+            if request.conversation_id is not None:
                 conversation = await self._repo.get(request.conversation_id, self._user_id)
-                if conversation is None:
-                    yield {"error": "Conversation not found"}
-                    return
+            if conversation is None:
+                conversation = await self._repo.create(
+                    self._user_id,
+                    self._fallback_title(first_user),
+                    conversation_id=request.conversation_id,
+                )
 
             # Persist only the latest user message (history is already stored).
             latest = request.messages[-1]

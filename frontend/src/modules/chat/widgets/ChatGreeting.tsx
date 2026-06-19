@@ -1,3 +1,5 @@
+import owlMascot from "@/shared/assets/owl_teaching_with_glasses.png";
+
 interface ChatGreetingProps {
   modelCount?: number | null;
 }
@@ -6,7 +8,7 @@ export function ChatGreeting({ modelCount }: ChatGreetingProps) {
   return (
     <div className="flex flex-col items-center gap-6">
       <img
-        src="./src/shared/assets/owl_teaching_with_glasses.png"
+        src={owlMascot}
         alt="The Nocturnal Athenaeum mascot"
         className="w-64 h-64 object-contain drop-shadow-lg"
       />

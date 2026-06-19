@@ -6,4 +6,8 @@ export type {
   StreamChunk,
   ModelInfo,
   ModelsResponse,
+  ConversationSummaryDto,
+  ConversationMessageDto,
+  ConversationDetailDto,
+  GeneratedTitleDto,
 } from "./chatApi";

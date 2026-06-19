@@ -10,6 +10,7 @@ export interface ChatRequest {
   max_tokens?: number;
   enable_thinking?: boolean;
   model?: string;
+  conversation_id?: string;
 }
 
 export interface ChatResponse {
@@ -18,8 +19,9 @@ export interface ChatResponse {
 }
 
 export interface StreamChunk {
-  type?: "thinking" | "text";
+  type?: "thinking" | "text" | "meta";
   chunk?: string;
+  conversation_id?: string;
   done?: boolean;
   error?: string;
 }
@@ -33,6 +35,29 @@ export interface ModelInfo {
 export interface ModelsResponse {
   count: number;
   models: ModelInfo[];
+}
+
+/** Backend (snake_case) shapes for the conversation endpoints. */
+export interface ConversationSummaryDto {
+  id: string;
+  title: string;
+  updated_at: string;
+}
+
+export interface ConversationMessageDto {
+  id: string;
+  role: string;
+  content: string;
+  thinking: string | null;
+  created_at: string;
+}
+
+export interface ConversationDetailDto extends ConversationSummaryDto {
+  messages: ConversationMessageDto[];
+}
+
+export interface GeneratedTitleDto {
+  title: string;
 }
 
 export const chatApi = {
@@ -80,5 +105,52 @@ export const chatApi = {
       throw new Error(error.detail ?? "Failed to load models");
     }
     return res.json();
+  },
+
+  async listConversations(): Promise<ConversationSummaryDto[]> {
+    const res = await fetchWithToken("/conversations");
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(error.detail ?? "Failed to load conversations");
+    }
+    return res.json();
+  },
+
+  async getConversation(id: string): Promise<ConversationDetailDto> {
+    const res = await fetchWithToken(`/conversations/${id}`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(error.detail ?? "Failed to load conversation");
+    }
+    return res.json();
+  },
+
+  async generateTitle(id: string): Promise<GeneratedTitleDto> {
+    const res = await fetchWithToken(`/conversations/${id}/title`, { method: "POST" });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(error.detail ?? "Failed to generate title");
+    }
+    return res.json();
+  },
+
+  async renameConversation(id: string, title: string): Promise<void> {
+    const res = await fetchWithToken(`/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(error.detail ?? "Failed to rename conversation");
+    }
+  },
+
+  async deleteConversation(id: string): Promise<void> {
+    const res = await fetchWithToken(`/conversations/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(error.detail ?? "Failed to delete conversation");
+    }
   },
 };

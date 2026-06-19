@@ -46,8 +46,14 @@ class ConversationRepository:
         )
         return list(result.scalars().all())
 
-    async def create(self, user_id: uuid.UUID, title: str) -> Conversation:
+    async def create(
+        self, user_id: uuid.UUID, title: str, conversation_id: uuid.UUID | None = None
+    ) -> Conversation:
+        # The frontend mints the id up front, so a new chat already streams under its
+        # final id (no re-key). Falls back to a server-generated id when omitted.
         conversation = Conversation(user_id=user_id, title=title)
+        if conversation_id is not None:
+            conversation.id = conversation_id
         self._session.add(conversation)
         await self._session.flush()  # populate the generated id before we return
         return conversation

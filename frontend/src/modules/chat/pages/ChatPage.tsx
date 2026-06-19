@@ -1,38 +1,44 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useParams, useLocation } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
-import { useSendMessage } from "../features";
 import { useModels } from "../shared";
+import { useChatSession } from "../entities";
+import { useSendMessage } from "../features";
 import { ChatTranscript, ChatInput, ChatGreeting } from "../widgets";
-import type { Message } from "../entities";
 
 export function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Always present: ChatPage only renders under /c/:conversationId ("/" redirects in).
+  const { conversationId } = useParams();
+  const routeId = conversationId as string;
+  // Set by NewChatRedirect for a freshly minted chat → skip the history fetch.
+  const location = useLocation();
+  const isNew = (location.state as { isNew?: boolean } | null)?.isNew ?? false;
+
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const { models, count: modelCount } = useModels();
-  const { isStreaming, sendMessage, stopStreaming } = useSendMessage({
-    messages,
-    setMessages,
-    enableThinking: thinkingEnabled,
-    model: selectedModel,
-  });
+  const effectiveModel = selectedModel ?? models.find((m) => m.loaded)?.id ?? models[0]?.id ?? null;
+
+  // A view onto this one conversation's session; the send workflow is separate.
+  const { messages, status } = useChatSession(routeId, isNew);
+  const { send, stop } = useSendMessage(routeId);
+
+  const isStreaming = status === "streaming";
+  const isLoading = status === "loading";
   const hasMessages = messages.length > 0;
 
-  // Default the selection to the resident model (or the first) once the list loads.
-  useEffect(() => {
-    if (selectedModel || models.length === 0) return;
-    const loaded = models.find((m) => m.loaded);
-    setSelectedModel(loaded?.id ?? models[0].id);
-  }, [models, selectedModel]);
-
+  const handleSend = useCallback(
+    (content: string) => send({ content, model: effectiveModel, enableThinking: thinkingEnabled }),
+    [send, effectiveModel, thinkingEnabled]
+  );
   const toggleThinking = () => setThinkingEnabled((v) => !v);
 
   return (
     <div className="relative h-full overflow-hidden">
-
-      {/* Empty state: greeting + input centered; exits with fade and slide up */}
+      {/* Empty state: greeting + input centered; exits with fade and slide up.
+          Suppressed while history is loading so the greeting doesn't flash. */}
       <AnimatePresence>
-        {!hasMessages && (
+        {!hasMessages && !isLoading && (
           <motion.div
             key="empty-state"
             className="absolute inset-0 flex flex-col items-center justify-center gap-4"
@@ -45,10 +51,10 @@ export function ChatPage() {
                 thinkingEnabled={thinkingEnabled}
                 onToggleThinking={toggleThinking}
                 models={models}
-                selectedModel={selectedModel}
+                selectedModel={effectiveModel}
                 onSelectModel={setSelectedModel}
-                onSend={sendMessage}
-                onStop={stopStreaming}
+                onSend={handleSend}
+                onStop={stop}
               />
             </motion.div>
           </motion.div>
@@ -80,15 +86,14 @@ export function ChatPage() {
               thinkingEnabled={thinkingEnabled}
               onToggleThinking={toggleThinking}
               models={models}
-              selectedModel={selectedModel}
+              selectedModel={effectiveModel}
               onSelectModel={setSelectedModel}
-              onSend={sendMessage}
-              onStop={stopStreaming}
+              onSend={handleSend}
+              onStop={stop}
             />
           </motion.div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }
