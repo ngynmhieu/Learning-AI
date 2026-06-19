@@ -5,187 +5,212 @@
 
 ## Responsibility
 
-The `chat` module owns one business capability: **turning a conversation history into a streamed LLM response**. It receives chat requests over HTTP, calls the standalone **models service** over HTTP, and streams tokens back as Server-Sent Events.
+The `chat` module owns two business capabilities:
+
+1. **Turning a conversation history into a streamed LLM response** — receives chat
+   requests over HTTP, calls the standalone **models service** over HTTP, and
+   streams tokens back as Server-Sent Events.
+2. **Persisting conversations** — every chat is stored as a `conversation` (titled,
+   ordered list of `messages`) owned by the signed-in user, so it can be listed,
+   reopened, renamed, deleted, and titled.
 
 It does **not** own:
-- The model loading/inference internals → that is the standalone **models service**; the backend reaches it only through the `shared/llm/` `LlmClient`.
+- The model loading/inference internals → that is the standalone **models service**;
+  the backend reaches it only through the `shared/llm/` `LlmClient`.
 - Configuration → `core/config.py`.
-- Authentication / "who is the user" → the future `auth` module's public surface.
-- Persistence of conversations → **not yet built** (see *Future*).
+- Authentication / "who is the user" → `modules/auth`'s public surface
+  (`get_current_user`).
 
 ---
 
-## Target Structure
+## Structure
 
 ```
 backend/app/modules/chat/
 ├── __init__.py
-├── router.py          # HTTP endpoints: POST /chat, GET /health
-├── service.py         # ChatService — orchestrates conversation → engine
-├── schemas.py         # ChatRequest, ChatResponse, Message, StreamChunk
-└── dependencies.py    # get_chat_service / wiring (module's DI surface)
+├── router.py            # HTTP endpoints: /health, /models, /conversations*, /chat
+├── repository.py        # ConversationRepository — all DB access (conversations/messages)
+├── models.py             # Conversation, Message ORM (Supabase-migrated tables)
+├── dependencies.py       # DI: get_model_service / get_conversation_service / get_chat_service
+├── schemas/              # API-boundary shapes, grouped by purpose (package)
+│   ├── __init__.py       #   public surface — re-exports all; lists request vs response
+│   ├── chat.py           #   ChatMessage, ChatRequest                              (request)
+│   ├── conversation.py   #   RenameRequest (req) · ConversationMessage/Summary/    (resp)
+│   │                     #   Detail/TitleResponse
+│   └── model.py          #   ModelInfo, ModelsResponse                            (response)
+└── services/             # Service layer — one scope per file, grouped under one package
+    ├── __init__.py       #   public surface — re-exports all three
+    ├── chat.py           #   ChatService — stream a turn + persist the exchange
+    ├── conversation.py   #   ConversationService — CRUD + titling
+    └── model.py          #   ModelService — model catalog + health (singleton)
 ```
-
-`models.py` is intentionally **absent for now** — chat has no database tables yet. It will be added when conversation persistence lands.
 
 ---
 
 ## File-by-File
 
 ### `router.py` — HTTP boundary (thin)
-Holds the `APIRouter(tags=["chat"])` (no path prefix) and two endpoints:
-- `POST /chat` — builds the SSE `StreamingResponse`, delegates streaming to `ChatService`.
-- `GET /health` — reports engine readiness via `ChatService.health_check()`.
+Holds the `APIRouter(tags=["chat"])` (no path prefix). Every handler resolves its
+service via `Depends` and delegates — no branching logic lives here:
 
-Stays thin per the API Layer Rules: it only maps the request into a service call and wraps the result in `StreamingResponse`. The message-dict conversion (`[{"role":..., "content":...}]`) currently in the handler should move **into the service** (`_normalize_messages` already exists there) so the router carries no transformation.
+| Method & path | Service call |
+|---|---|
+| `GET /health` | `ModelService.health_check()` |
+| `GET /models` | `ModelService.list_models()` |
+| `GET /conversations` | `ConversationService.list_conversations()` |
+| `GET /conversations/{id}` | `ConversationService.get_conversation(id)` → 404 if not owned |
+| `PATCH /conversations/{id}` | `ConversationService.rename_conversation(id, title)` → 404 if not owned |
+| `DELETE /conversations/{id}` | `ConversationService.delete_conversation(id)` → 404 if not owned |
+| `POST /conversations/{id}/title` | `ConversationService.generate_title(id)` → 404 if not owned |
+| `POST /chat` | `ChatService.stream_and_persist(request)` → `StreamingResponse` over SSE |
 
-### `service.py` — orchestration
-`ChatService`, constructed with an injected `LlmClient`. Responsibilities:
-- `stream_response(...)` — normalize messages, delegate to the client's `stream(...)` (which calls the models service `/v1/chat/completions`), yield content chunks.
-- `health_check()` — surface backend / models-service readiness.
+### `services/model.py` — `ModelService` (singleton)
+Stateless relay over the injected `LlmClient`: `list_models()` (catalog + count) and
+`health_check()`. Built once during the app lifespan and stored on `app.state` —
+the only one of the three services that isn't request-scoped (it holds no DB
+session or per-user state).
 
-Depends only on the injected client (constructor injection). Imports the client from `shared/llm`, never the other way around.
+### `services/conversation.py` — `ConversationService` (request-scoped)
+CRUD + titling over stored conversations, scoped to `user.id` on every query:
+`list_conversations`, `get_conversation`, `rename_conversation`,
+`delete_conversation`, and `generate_title` (the one method that calls the LLM —
+see *Titling* below).
 
-### `schemas.py` — API boundary
-The Pydantic models exactly as they are today: `Message`, `ChatRequest`, `ChatResponse`, `StreamChunk`. These describe what crosses HTTP — not storage.
+### `services/chat.py` — `ChatService` (request-scoped)
+Owns the streaming pipeline for one chat turn: resolve-or-create the conversation,
+persist the user message, stream the reply, persist the assistant message once the
+stream ends. See *Conversation id lifecycle* below for how the id is resolved.
+
+### `repository.py` — `ConversationRepository`
+All DB access for both tables. Every method takes/filters `user_id` (ownership is
+enforced here, not by RLS — see the caveat below):
+
+- `list_for_user(user_id)` → summaries, newest `updated_at` first.
+- `get(conversation_id, user_id)` → `None` if not owned.
+- `get_messages(conversation_id)` → ordered by `created_at`.
+- `create(user_id, title, conversation_id=None)` → inserts a row; if
+  `conversation_id` is given (the normal case — see below) it's set explicitly
+  before flush, otherwise the ORM's Python-side `default=uuid.uuid4` applies.
+- `add_message(conversation_id, role, content, thinking=None)` → inserts + bumps
+  the parent conversation's `updated_at` (so the sidebar re-sorts it to the top).
+- `rename(conversation_id, user_id, title)` / `delete(conversation_id, user_id)`.
+
+### `models.py` — ORM
+`Conversation` (`id`, `user_id`, `title`, `created_at`, `updated_at`) and `Message`
+(`id`, `conversation_id` FK cascade, `role`, `content`, `thinking`, `created_at`).
+Both tables FK into Supabase's `auth.users` and carry RLS, so the tables themselves
+are created in `supabase/migrations/` — **not** by SQLAlchemy `create_all` (same
+rule as `profiles`); `models.py` is only the backend's read/write view.
+
+### `schemas/` — API boundary (a package, grouped by purpose)
+Import from `modules.chat.schemas` (the `__init__.py`), never the submodules.
+
+- **`chat.py`** — `ChatMessage`, `ChatRequest` *(`POST /chat`)*. `ChatRequest.conversation_id`
+  is optional in the type but in practice always sent — see below.
+- **`conversation.py`** — `RenameRequest` *(request)*; `ConversationMessage`,
+  `ConversationSummary`, `ConversationDetail`, `TitleResponse` *(responses)*.
+- **`model.py`** — `ModelInfo`, `ModelsResponse` *(responses for `GET /models`)*.
+
+Naming note: the inbound message is `ChatMessage` (role + content only); its stored
+counterpart returned in history is `ConversationMessage` (adds id/thinking/timestamp).
 
 ### `dependencies.py` — DI surface
-Holds the provider that hands a ready `ChatService` to the router via `Depends`. This replaces the current module-global `_chat_service` + `set_chat_service` pattern in `agent.py`.
+Three providers, matching the three service scopes:
+- `get_model_service` — reads the singleton off `app.state`.
+- `get_conversation_service` / `get_chat_service` — build their request-scoped
+  service from a fresh `AsyncSession`, the current user (`modules.auth`), and the
+  shared `LlmClient` off `app.state`.
 
 ---
 
-## Dependencies (flow downward only)
+## Conversation id lifecycle — minted by the frontend
+
+The id is **not** server-generated. The frontend mints a `crypto.randomUUID()`
+before a new chat even opens (see `frontend/docs/modules/chat.md` — `NewChatRedirect`)
+and `POST /chat` always carries that `conversation_id`. `ChatService.stream_and_persist`
+resolves it with a simple get-or-create, never a separate "draft" or re-key step:
+
+```python
+conversation = None
+if request.conversation_id is not None:
+    conversation = await self._repo.get(request.conversation_id, self._user_id)
+if conversation is None:
+    conversation = await self._repo.create(
+        self._user_id, self._fallback_title(first_user), conversation_id=request.conversation_id,
+    )
+```
+
+An unrecognized/foreign id just creates a new row owned by the caller — `get()`
+filters by `user_id`, so a client can never read or hijack another user's
+conversation by guessing its id; at worst a PK collision would surface as an error,
+never a leak. The stream still emits a `meta` event with the id first (kept for
+visibility/compatibility), but the frontend no longer needs it for routing since it
+already knows the id before the request is sent.
+
+> **RLS caveat (critical).** The backend connects to Postgres via `asyncpg` as a
+> privileged role, so `auth.uid()` is **not** populated on backend queries — RLS
+> with `auth.uid() = user_id` does **not** filter backend access. The service must
+> therefore filter **every** query by the current user's id itself (as above). RLS
+> exists only to protect Supabase's auto-exposed REST API (defense-in-depth), exactly
+> as for `profiles`.
+
+---
+
+## Titling — LLM-generated, out-of-band, with a fallback
+
+1. **Instant placeholder.** On creation, `title` = first user message trimmed to
+   ~40 chars (`ChatService._fallback_title`), so the sidebar entry is never blank.
+2. **Out-of-band upgrade.** Once the frontend's stream completes, it calls
+   `POST /conversations/{id}/title` separately — **not** part of the `/chat` SSE
+   stream — so titling can never delay a reply. `ConversationService.generate_title`
+   re-reads the conversation's first user+assistant messages, asks the LLM for a
+   ≤6-word title, and persists it.
+3. **Failure = keep the fallback.** If the title call errors or yields nothing, the
+   existing title (placeholder or previous) is returned unchanged.
+
+## SSE contract for `POST /chat`
+
+```
+{"type":"meta","conversation_id":"…"}        — first, confirms the resolved id
+{"type":"thinking","chunk":"…"}              — zero or more, only if enable_thinking
+{"type":"text","chunk":"…"}                  — zero or more
+{"done":true}                                — terminal, success
+{"error":"…"}                                — terminal, failure (rolls back the turn)
+```
+
+There is no `title` event — titling is a separate request (above), not part of this
+stream.
+
+---
+
+## Dependency flow (flow downward only)
 
 ```
 modules/chat/router.py
-    └─→ modules/chat/service.py        (ChatService)
-            └─→ shared/llm/client.py        (LlmClient)
-                    └─→ HTTP → models service   (/v1/chat/completions)
-
-modules/chat/router.py / service.py
-    └─→ modules/chat/schemas.py
-    └─→ core/config.py                 (models service URL, model id)
+    ├─→ modules/auth/dependencies.py (get_current_user)            # public surface
+    ├─→ modules/chat/services/model.py (ModelService)
+    │       └─→ shared/llm/client.py (LlmClient)
+    ├─→ modules/chat/services/conversation.py (ConversationService)
+    │       ├─→ modules/chat/repository.py (ConversationRepository)
+    │       │       └─→ core/database (AsyncSession)
+    │       └─→ shared/llm/client.py (LlmClient: title generation)
+    └─→ modules/chat/services/chat.py (ChatService)
+            ├─→ modules/chat/repository.py (ConversationRepository)
+            └─→ shared/llm/client.py (LlmClient: stream)
+                    └─→ HTTP → models service (/v1/chat/completions, /v1/models)
 ```
 
-`chat` imports from `shared/` and `core/`. It must never import from `main.py` or reach into another module's internals.
+`chat` imports from `shared/`, `core/`, and `modules/auth`'s public surface only. It
+must never import from `main.py` or reach into another module's internals.
 
 ---
 
-## Migration Plan (replace the in-process engine with the models service)
+## Future
 
-The model now runs in the standalone **models service**; the backend calls it
-over HTTP. Ordered so the app stays runnable at each step.
-
-1. **Add the client dependency.** Add `openai` to `requirements.txt` — an
-   OpenAI-compatible client; the models service speaks that format.
-
-2. **Replace the engine with a client.** Rewrite `shared/llm/` so the
-   `QwenService` engine (loads/owns the model) becomes `LlmClient` — a thin
-   wrapper over the `openai` SDK pointed at `settings.models_service_url`. It
-   exposes `generate(...)` and `stream(...)` that call `/v1/chat/completions`.
-   No `torch` / `transformers` / `bitsandbytes` imports remain.
-
-3. **Update config.** In `core/config.py`, drop the model *loading* settings
-   (`quantize`, model weights/name as a load target); add `models_service_url`
-   and `model_name` as the **model id to request** (e.g. `qwen3.5-9b`).
-
-4. **Update the service.** `ChatService` now depends on `LlmClient`; its
-   `stream_response` relays the client's streamed content. Router and schemas
-   are unchanged.
-
-5. **Slim `main.py`.** Remove the model-loading lifespan step
-   (`await qwen_service.load(...)`). Construct `LlmClient` (cheap) and wire
-   `ChatService`. The backend now boots in seconds.
-
-6. **Drop the heavy deps.** Remove `torch`, `torchvision`, `transformers`,
-   `accelerate`, and `bitsandbytes` from the backend `requirements.txt` — the
-   backend no longer runs models.
-
-7. **Smoke test end-to-end.** Start the models service (`run_models.bat`), then
-   the backend; hit `GET /health` and `POST /chat`, confirm streaming works.
-
----
-
-## Planned: `GET /models` (proposal, not yet built)
-
-> **Status: proposal.** The frontend needs to know **how many models the LLM
-> manager has** (to show the count and, later, a model picker). The models being
-> listed are exactly the chat model, and `chat` is the only consumer — so this
-> lives **in the chat module**, not a separate one. (A dedicated `system` module
-> was considered and rejected as premature: one proxy endpoint, one consumer.
-> If health/readiness/model-switch endpoints accumulate later, extract `system`
-> then.)
-
-### The endpoint
-
-`GET /models` → the catalog the models service reports, plus a count.
-
-```json
-{
-  "count": 1,
-  "models": [
-    { "id": "qwen3.5-9b", "description": "Qwen3.5 9B · …", "loaded": true }
-  ]
-}
-```
-
-### Changes (all within `chat` + the shared client)
-
-**`shared/llm/client.py`** — add one business-agnostic method. The catalog comes
-from the models service's `GET /v1/models`, already reachable via the SDK
-(`health()` uses `self._client.models.list()` today). Custom fields arrive as SDK
-extras (`model_extra`):
-
-```python
-def list_models(self) -> list[dict]:
-    resp = self._client.models.list()
-    return [
-        {
-            "id": m.id,
-            "description": (m.model_extra or {}).get("description", ""),
-            "loaded": (m.model_extra or {}).get("loaded", False),
-        }
-        for m in resp.data
-    ]
-```
-
-**`modules/chat/service.py`** — `ChatService` already holds the injected
-`LlmClient`; add a thin method:
-
-```python
-def list_models(self) -> dict:
-    models = self._llm.list_models()
-    return {"count": len(models), "models": models}
-```
-
-**`modules/chat/schemas.py`** — add `ModelInfo` (`id`, `description`, `loaded`)
-and `ModelsResponse` (`count`, `models`).
-
-**`modules/chat/router.py`** — one thin endpoint (the router has no path prefix,
-alongside `/chat` and `/health`):
-
-```python
-@router.get("/models", response_model=ModelsResponse)
-async def list_models(chat_service: ChatService = Depends(get_chat_service)):
-    return chat_service.list_models()
-```
-
-No `main.py` change — `ChatService` and its `LlmClient` are already wired.
-
-### Dependency flow (unchanged shape)
-
-```
-modules/chat/router.py (GET /models)
-    └─→ modules/chat/service.py (ChatService.list_models)
-            └─→ shared/llm/client.py (LlmClient.list_models)
-                    └─→ HTTP → models service (/v1/models)
-```
-
----
-
-## Future (when persistence + auth arrive)
-
-- `models.py` — `conversations` and `messages` tables (see the auth & persistence plan).
-- `service.py` gains: save user message → stream → save assistant reply.
-- Endpoints gain `user = Depends(get_current_user)` from `modules/auth/dependencies.py`.
-- A `health`/system concern may move out of `chat` into its own small module, since engine readiness is not really chat business logic.
+- A `health`/system concern may move out of `chat` into its own small module, since
+  engine readiness is not really chat business logic.
+- Pagination on `GET /conversations` and on message history once volumes grow.
+- Server-side resumable streams (so an in-flight reply survives a refresh/tab-close)
+  would need a durable buffer (DB/Redis) keyed by `conversation_id` — today a stream
+  is held only in-process per request, matching the frontend's client-side-only
+  (`ChatSession`) persistence tier. See `frontend/docs/modules/chat.md`.

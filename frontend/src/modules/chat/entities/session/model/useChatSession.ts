@@ -1,22 +1,17 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import type { SessionState } from "../session.types";
 import { useChatRegistry } from "./useChatRegistry";
 
 /** Binds the view to ONE conversation's session. Resolves the persistent instance from
- *  the registry and subscribes to its snapshot. For an existing conversation it loads
- *  history once; for a freshly minted chat (`isNew`) it skips the fetch so the greeting
- *  shows immediately. Switching `routeId` just swaps which session this component watches
- *  — the others keep running untouched. */
+ *  the registry — which, for an existing conversation, already kicked off the history
+ *  fetch synchronously on creation (see ChatSessionRegistry.getOrCreate), so the very
+ *  first snapshot read here already reflects "loading" rather than the constructor's
+ *  "idle" default. For a freshly minted chat (`isNew`) history is skipped entirely so
+ *  the greeting shows immediately. Switching `routeId` just swaps which session this
+ *  component watches — the others keep running untouched. */
 export function useChatSession(routeId: string, isNew: boolean): SessionState {
   const registry = useChatRegistry();
-  const session = registry.getOrCreate(routeId);
+  const session = registry.getOrCreate(routeId, isNew);
 
-  const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
-
-  useEffect(() => {
-    if (isNew) session.markHistoryLoaded();
-    else void session.ensureHistory();
-  }, [routeId, session, isNew]);
-
-  return state;
+  return useSyncExternalStore(session.subscribe, session.getSnapshot);
 }

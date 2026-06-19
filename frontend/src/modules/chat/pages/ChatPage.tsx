@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useModels } from "../shared";
 import { useChatSession } from "../entities";
 import { useSendMessage } from "../features";
-import { ChatTranscript, ChatInput, ChatGreeting } from "../widgets";
+import { ChatTranscript, ChatTranscriptSkeleton, ChatInput, ChatGreeting } from "../widgets";
 
 export function ChatPage() {
   // Always present: ChatPage only renders under /c/:conversationId ("/" redirects in).
@@ -41,7 +41,7 @@ export function ChatPage() {
         {!hasMessages && !isLoading && (
           <motion.div
             key="empty-state"
-            className="absolute inset-0 flex flex-col items-center justify-center gap-4"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-4 mb-20"
             exit={{ opacity: 0, y: -16, transition: { duration: 0.2 } }}
           >
             <ChatGreeting modelCount={modelCount} />
@@ -57,6 +57,22 @@ export function ChatPage() {
                 onStop={stop}
               />
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Loading state: skeleton transcript while history is fetched (no messages yet). */}
+      <AnimatePresence>
+        {!hasMessages && isLoading && (
+          <motion.div
+            key="skeleton"
+            className="absolute inset-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            transition={{ duration: 0.2 }}
+          >
+            <ChatTranscriptSkeleton />
           </motion.div>
         )}
       </AnimatePresence>

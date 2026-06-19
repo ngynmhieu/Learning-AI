@@ -201,7 +201,7 @@ export function ChatInput({
               }}
               aria-label="Stop generating"
               whileTap={{ scale: 0.92 }}
-              className="shrink-0 w-9 h-9 rounded-xl bg-[var(--owl-brown-muted)] hover:bg-[var(--owl-brown-dark)] transition-colors flex items-center justify-center text-[var(--owl-cream)]"
+              className="shrink-0 w-9 h-9 rounded-xl bg-[var(--owl-brown-muted)] hover:bg-[var(--owl-brown-dark)] transition-colors flex items-center justify-center text-[var(--owl-cream)] cursor-pointer"
             >
               <StopIcon size={20} />
             </motion.button>
@@ -214,7 +214,7 @@ export function ChatInput({
               disabled={!value.trim()}
               aria-label="Send"
               whileTap={{ scale: 0.92 }}
-              className="shrink-0 w-9 h-9 rounded-xl bg-[var(--owl-brown)] hover:bg-[var(--owl-brown-dark)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center text-[var(--owl-cream)]"
+              className="shrink-0 w-9 h-9 rounded-xl bg-[var(--owl-brown)] hover:bg-[var(--owl-brown-dark)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center text-[var(--owl-cream)] cursor-pointer"
             >
               <ArrowUpIcon size={20} />
             </motion.button>

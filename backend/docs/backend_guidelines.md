@@ -161,6 +161,32 @@ Extract a piece of logic into its own class/module inside the feature when:
 
 The service composes the component; the component owns the complexity.
 
+### Disambiguate a Crowded File — Rename, Then Split into a Package
+
+When a single file accumulates so many components (schemas, helpers, small classes)
+that their purposes blur and you can no longer tell at a glance which is which, fix
+it in this order:
+
+1. **Rename by purpose first.** Often the file is fine; the *names* are the problem.
+   Give each piece a name that states its job, so duplicates and look-alikes stop
+   colliding. (E.g. an inbound `Message` and a stored `Message` became `ChatMessage`
+   vs `ConversationMessage`.) Prefer suffixes that signal direction/role —
+   `…Request` / `…Response` — over a bare noun.
+2. **If it's still too many or mixed-purpose, split into a subfolder (package).**
+   Turn `thing.py` into `thing/` with one submodule per purpose, grouped by
+   sub-domain (so each request sits next to its related responses), and an
+   `__init__.py` that **re-exports the public surface**. Consumers import from the
+   package (`modules.chat.schemas`), never the submodules (`…schemas.chat`).
+3. **The package `__init__.py` is the contract.** Keep its `__all__` and a short
+   header that says which names are requests vs responses (or whatever the axis is),
+   so the directory is self-documenting. Existing `from .thing import X` imports keep
+   working unchanged as long as `X` is re-exported.
+
+This is the same "keep modules flat until a piece earns its own file/folder"
+principle applied *within* a file: a flat file is the default; promote it to a
+package only when names alone can't keep it legible. `modules/chat/schemas/` is the
+worked example.
+
 ### Module Boundary Rules
 
 - **Modules do not reach into each other's internals.** If `chat` needs the logged-in user, it imports `auth`'s public surface (`modules.auth.dependencies.get_current_user`) — never `auth`'s service internals. (This is the backend twin of the frontend's "import only through the public API" rule.)
@@ -169,7 +195,7 @@ The service composes the component; the component owns the complexity.
 
 ### Schemas vs Models
 
-- **`schemas.py`** = Pydantic models = the **API boundary** (request/response shapes).
+- **`schemas.py`** (or a `schemas/` package once it grows — see *Disambiguate a Crowded File*) = Pydantic models = the **API boundary** (request/response shapes).
 - **`models.py`** = database table definitions = the **persistence boundary**.
 - Keep them in separate files. Convert between them in the service (or a small mapper component), not in the router.
 
