@@ -1,0 +1,1 @@
+export { useUploadPages } from "./useUploadPages";

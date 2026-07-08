@@ -1,0 +1,42 @@
+"""Storage client — a thin wrapper around Supabase Storage for one bucket.
+
+Built once during the app lifespan with the **service-role** key (bypasses Storage
+RLS, so it may write under any user's prefix on their behalf — used only for the
+`read` module's scrape-import path, which is the one place bytes flow through the
+backend). `storage3`'s client is synchronous, so every call runs in a threadpool to
+avoid blocking the event loop (same pattern as `AuthService.verify`).
+"""
+from __future__ import annotations
+
+from fastapi.concurrency import run_in_threadpool
+from supabase import Client, create_client
+
+
+class StorageClient:
+    """Upload/remove/sign objects in one Supabase Storage bucket."""
+
+    def __init__(self, supabase: Client, bucket: str) -> None:
+        self._bucket = supabase.storage.from_(bucket)
+
+    @classmethod
+    def create(cls, url: str, service_role_key: str, bucket: str) -> "StorageClient":
+        return cls(create_client(url, service_role_key), bucket)
+
+    async def upload(self, path: str, data: bytes, content_type: str | None = None) -> None:
+        # Paths embed a fresh UUID and are never rewritten (immutable content),
+        # so let browsers/CDN cache the object for a year instead of the 1h default.
+        file_options = {"cache-control": "31536000"}
+        if content_type:
+            file_options["content-type"] = content_type
+        await run_in_threadpool(self._bucket.upload, path, data, file_options)
+
+    async def remove(self, paths: list[str]) -> None:
+        if not paths:
+            return
+        await run_in_threadpool(self._bucket.remove, paths)
+
+    async def create_signed_urls(self, paths: list[str], expires_in: int = 3600) -> list[str]:
+        if not paths:
+            return []
+        responses = await run_in_threadpool(self._bucket.create_signed_urls, paths, expires_in)
+        return [response["signedURL"] for response in responses]

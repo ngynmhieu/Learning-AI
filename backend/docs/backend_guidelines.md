@@ -78,6 +78,16 @@ Code reused across modules that carries no business meaning: base classes, commo
 
   > The backend no longer loads or runs the model in-process. The previous `QwenService` engine has moved out to the standalone **models service** (see `models/docs/models_guideline.md`); the backend only talks to it over HTTP. Consequently `torch`, `transformers`, and `bitsandbytes` are **no longer backend dependencies**.
 
+- **`storage/`** — A thin Supabase **Storage** client (object upload/delete/signing),
+  business-agnostic, built once and held on `app.state`. Any feature that re-hosts
+  files into a bucket uses it — e.g. the `read` module's scrape-import. It uses the
+  Supabase **service-role key** (`settings.supabase_service_role_key`), which bypasses
+  Storage RLS for trusted server-side writes; **that key is a secret and must never be
+  exposed to the frontend**. Note the bytes-vs-metadata split: when the **frontend**
+  uploads media (local files) it goes **straight to Storage**, not through the backend
+  — the backend only touches bytes when it must (server-side download/re-host). See
+  `supabase/docs/supabase_guidelines.md` → *Storage Buckets*.
+
 ### `modules/` — Features
 Each module is a self-contained business domain (a *bounded context*): `chat`, `auth`, and so on. It holds its own routes, logic, schemas, and persistence, and exposes a clean public surface to the rest of the app.
 

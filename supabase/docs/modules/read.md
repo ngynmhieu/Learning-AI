@@ -1,4 +1,4 @@
-# Schema: `read` module — `mangas`, `manga_sections`, `manga_pages` + `manga` storage bucket
+# Schema: `read` module — `mangas`, `manga_sections`, `manga_pages`, `library_assets` + `manga` storage bucket
 
 > Per-module schema doc — the database half of the manga-reader feature (the
 > `read` module; **"Lector"** is the user-facing display name only). Mirrors how the
@@ -10,10 +10,12 @@
 ## Status
 
 **Migrations generated, not yet pushed.** Source fragments live at
-`supabase/schema/read/{mangas,manga_sections,manga_pages,storage_manga}.sql`.
-The generator has stamped them into flat migrations, in order:
-`add_mangas` → `add_manga_sections` → `add_manga_pages` → `add_manga_storage`
-(each FKs into the previous; storage last). Next step: `supabase db push`.
+`supabase/schema/read/{mangas,manga_sections,manga_pages,library_assets,storage_manga}.sql`.
+The generator has stamped them into flat migrations, applied in file order:
+`add_mangas` → `add_manga_sections` → `add_manga_pages` → `add_manga_storage` →
+`add_library_assets` (the first three FK into the previous, storage third; `library_assets`
+FKs only `auth.users`, so it has no ordering dependency on the others — it was simply
+generated last). Next step: `supabase db push`.
 
 ## Why these are SQL migrations (not SQLAlchemy)
 
@@ -29,12 +31,21 @@ keeps only an ORM read/write view in `backend/app/modules/read/models.py`.
 mangas            one manga series, owned by a user
   └─ manga_sections   a volume OR a chapter (kind discriminator)
        └─ manga_pages     one image per section, ordered by `position`
+
+library_assets    a user's *unassigned* image pool — scraped or uploaded,
+                  not yet organized into any manga (no manga link)
 ```
 
 A manga is organized by **either** volumes **or** chapters — the frontend's two tabs
 are just `manga_sections` filtered by `kind`. (Not nested: a section is a volume or a
 chapter, never a volume *containing* chapters. If true hierarchy is wanted later, add
 a nullable `parent_id` to `manga_sections` in a new migration.)
+
+`library_assets` sits **beside** that tree, not inside it: it's a per-user staging
+**pool** for images the user has scraped (possibly across many sessions) or uploaded
+but not yet placed into a series. Organizing a pool image into a manga creates a
+`manga_pages` row from it and removes the pool row (see *`library_assets`* below) — so
+an asset lives in exactly one place at a time: the pool, or a section.
 
 ## `mangas`
 
@@ -165,15 +176,63 @@ create policy "Delete pages through an owned manga"
 > Reorder = rewrite `position` for the affected rows (the backend does this in one
 > transaction). No update policy on pages beyond that is needed yet.
 
+## `library_assets`
+
+One row per **unassigned** image in a user's pool — an image that has been scraped or
+uploaded but not yet organized into a manga. This is the "loose images with no manga"
+you browse in the library pool; when you add one to a series it becomes a `manga_page`
+and leaves the pool (see *Notes → The pool lifecycle*).
+
+Unlike `manga_sections`/`manga_pages`, a pool asset has **no parent manga to derive
+ownership through**, so it carries `user_id` directly and its RLS is keyed on that
+(the same shape as `mangas`).
+
+```sql
+create table if not exists public.library_assets (
+  id           uuid        primary key default gen_random_uuid(),
+  user_id      uuid        not null references auth.users (id) on delete cascade,
+  storage_path text        not null,   -- object path in the `manga` bucket, under {user_id}/_pool/
+  source_url   text,                   -- where it was scraped from; NULL for direct uploads
+  width        integer,                -- intrinsic px (nullable until known)
+  height       integer,
+  created_at   timestamptz not null default now()
+);
+
+-- Pool view: a user's unassigned images, newest first.
+create index if not exists library_assets_user_created_idx
+  on public.library_assets (user_id, created_at desc);
+
+-- RLS: owner-keyed directly on user_id (no manga to join through).
+alter table public.library_assets enable row level security;
+
+create policy "Library assets are readable by the owner"
+  on public.library_assets for select using (auth.uid() = user_id);
+create policy "Owner can insert library assets"
+  on public.library_assets for insert with check (auth.uid() = user_id);
+create policy "Owner can delete their library assets"
+  on public.library_assets for delete using (auth.uid() = user_id);
+```
+
+> No update policy: a pool asset is immutable — it's either created (scrape/upload),
+> consumed into a `manga_page`, or discarded. Nothing edits it in place.
+
 ## `manga` storage bucket
 
 A **private** bucket holds every page image and cover. Object paths are prefixed by
 owner so one RLS rule on `storage.objects` enforces ownership:
 
 ```
-manga/{user_id}/{manga_id}/{section_id}/{position}-{uuid}.{ext}
-        ▲ first path segment = owner
+manga/{user_id}/{manga_id}/{section_id}/{position}-{uuid}.{ext}   ← a page in a series
+manga/{user_id}/_pool/{uuid}.{ext}                               ← an unassigned pool asset
+        ▲ first path segment = owner (the only segment RLS checks)
 ```
+
+Because the storage policy keys **only** on the first segment (`{user_id}`), a pool
+object at `{user_id}/_pool/…` is already owner-scoped, and — importantly — a
+`manga_page` may reference that same `_pool/` path unchanged. So organizing a pool
+asset into a series needs **no byte move**: only the metadata row changes (pool → page).
+Moving the object to a `{manga_id}/{section_id}/…` path is optional tidiness (a Storage
+copy + delete), not a correctness requirement.
 
 ```sql
 -- Private bucket (public = false → no open URLs; reads go through signed URLs).
@@ -210,8 +269,21 @@ create policy "Delete own manga files"
   **service-role key**, which bypasses Storage RLS (trusted server), writing under the
   user's `{user_id}/` prefix on their behalf. That key is server-only — never shipped
   to the frontend.
-- **Cascade deletes.** Deleting a user drops their mangas → sections → pages (table
-  rows) via `on delete cascade`. **Storage objects are NOT cascaded** by the DB — the
-  backend deletes the files from the bucket when a manga/section/page row is removed.
+- **Cascade deletes.** Deleting a user drops their mangas → sections → pages **and**
+  their `library_assets` (table rows) via `on delete cascade`. **Storage objects are
+  NOT cascaded** by the DB — the backend deletes the files from the bucket when a
+  manga/section/page row, or a *discarded* pool asset, is removed.
+- **The pool lifecycle.** A `library_assets` row has exactly two exits, and they treat
+  the underlying Storage object differently:
+  - **Organized into a manga** — the backend creates a `manga_pages` row pointing at the
+    asset's `storage_path`, then deletes the `library_assets` row. The **file is kept**:
+    ownership simply transfers from the pool row to the new page row (which now
+    references it). This is your "gets a manga link, leaves the pool."
+  - **Discarded** — the user drops the asset without using it: delete the
+    `library_assets` row **and** the Storage object.
+  One asset → one page: an asset is *consumed* on organize (not referenced by many
+  mangas). If shared/reused-across-mangas is ever wanted, keep the pool row and add a
+  join table instead of deleting — a later change.
 - **Reading order** is `manga_pages.position`; section order within a tab is
-  `manga_sections.number`.
+  `manga_sections.number`. The pool itself is unordered (browsed newest-first); order is
+  chosen at organize time, when the pages get their `position`.

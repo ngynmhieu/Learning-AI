@@ -131,7 +131,7 @@ question decides where a file goes:
 
 | The file… | Goes in | Examples |
 |---|---|---|
-| creates a client/SDK instance, or wraps raw transport | `shared/lib/` | `supabase.ts` (the `createClient` singleton), `http.ts` (`fetchWithToken` — adds the session token to any request) |
+| creates a client/SDK instance, or wraps raw transport | `shared/lib/` | `supabase.ts` (the `createClient` singleton), `http.ts` (`fetchWithToken` — adds the session token to any request), `storage.ts` (Supabase Storage wrapper — `uploadToBucket`, `createSignedUrls`) |
 | names specific backend routes / payload shapes (an endpoint caller) **and is reused by more than one module** | `shared/api/`, **one file per backend domain** | `chat.ts` |
 | names specific backend routes but is used by **only one module** | that module (`modules/<m>/...`), **not** `shared/api` | auth's `/auth/me` caller → `modules/auth/features/sync-profile/` |
 | reads an environment variable | `shared/config/` | `env.ts` |
@@ -165,6 +165,21 @@ const res = await fetch("/some-route", { method: "POST", body: ... });
 
 Never import `supabase` directly in a feature or entity just to read the session token — that
 belongs in `shared/lib/http.ts`. Features call `fetchWithToken`; the token plumbing stays in one place.
+
+#### Exception: large media goes directly to Supabase Storage, not the backend
+
+`fetchWithToken` is for **backend routes** (metadata, JSON). **Binary media** — image
+files in the `read` module — does **not** flow through the backend; the frontend
+uploads files and mints read URLs **directly against Supabase Storage**, which is faster
+(CDN) and avoids proxying megabytes through FastAPI. This still rides the **same
+authenticated Supabase session** (Storage RLS sees the logged-in user), so it is not an
+auth bypass — only a different transport for bytes.
+
+Keep that access in one place too: a thin `shared/lib/storage.ts` wrapper
+(`uploadToBucket`, `createSignedUrls`) is the **only** sanctioned spot to touch the
+Supabase client for Storage — features/entities call the wrapper, never the SDK
+directly (the same discipline as `fetchWithToken`). The split in one line: **metadata →
+`fetchWithToken` (backend); bytes → `shared/lib/storage.ts` (Storage).**
 
 ### `modules/`
 This is where business domains live.

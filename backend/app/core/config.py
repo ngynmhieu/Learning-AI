@@ -30,5 +30,11 @@ class Settings:
     supabase_url: str = os.getenv("SUPABASE_URL", "")
     supabase_anon_key: str = os.getenv("SUPABASE_ANON_KEY", "")
 
+    # Supabase Storage — service-role key bypasses RLS for the read module's
+    # scrape-import path (server-side download -> upload). SECRET: never sent to
+    # the frontend; the frontend uses the anon key + user session for direct uploads.
+    supabase_service_role_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    manga_bucket: str = os.getenv("MANGA_BUCKET", "manga")
+
 
 settings = Settings()

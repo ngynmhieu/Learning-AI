@@ -1,0 +1,1 @@
+export { MangaGrid } from "./MangaGrid";

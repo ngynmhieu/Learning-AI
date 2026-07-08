@@ -1,0 +1,1 @@
+export { useScrapePages } from "./useScrapePages";

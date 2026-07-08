@@ -1,0 +1,182 @@
+# Read Module — Architecture (manga reader, displayed as "Lector")
+
+> Per-module doc for the manga-reader frontend. Code-level module name: **`read`**
+> (`modules/read/`). **"Lector"** is the user-facing label only — the sidebar nav
+> text and page headings — never a folder name. Pairs with `backend/docs/modules/read.md`
+> and `supabase/docs/modules/read.md`. Read `frontend_guidelines.md` first, including
+> its networking section (the new `shared/lib/storage.ts` wrapper).
+
+## Status
+
+**Proposal.** Agreed design, not yet built.
+
+## Overview
+
+A manga library: browse all series, open one to see its **Volumes** / **Chapters**
+tabs, build a volume/chapter by uploading local images or scraping a site, and read it
+in a fast, modern reader. It also has an **image pool** — a personal staging area where
+you collect scraped or uploaded images (across many sessions) that aren't tied to any
+manga yet, then organize them into a volume/chapter later. The defining choice (see the
+guidelines): **image bytes go frontend ↔ Supabase Storage directly**; the backend owns
+only metadata (what exists, who owns it, page order).
+
+## Structure
+
+```
+frontend/src/
+  shared/
+    lib/
+      storage.ts                     ← NEW: supabase-js Storage wrapper (uploadToBucket, createSignedUrls)
+  modules/
+    read/
+      index.ts                       ← public API (pages + provider for the router)
+      pages/
+        LectorLibraryPage.tsx        ← /lector — grid of all mangas
+        MangaDetailPage.tsx          ← /lector/manga/:mangaId — Volumes/Chapters tabs + sections
+        ReaderPage.tsx               ← /lector/read/:sectionId — the reading view
+        PoolPage.tsx                 ← /lector/pool — the unassigned image pool
+      widgets/
+        MangaGrid/                   ← library grid (+ MangaCard)
+        SectionTabs.tsx              ← Volumes | Chapters switch
+        SectionGrid/                 ← a tab's sections (+ SectionCard)
+        UploadTray/                  ← local-file staging with drag-reorder (+ components)
+        ScrapePicker/                ← paste URL → pick + order scraped images (+ components)
+        PoolGrid/                    ← the pool: select + order assets, then organize/discard (+ components)
+        Reader/                      ← virtualized page viewer + controls (+ components)
+      features/
+        create-manga/                ← create a series
+        create-section/              ← add a volume/chapter
+        upload-pages/                ← local files → Storage (direct) → record rows
+        scrape-pages/                ← URL → POST /read/scrape → candidates
+        import-pages/                ← chosen candidates → POST /read/sections/:id/import (direct into a section)
+        collect-to-pool/             ← chosen candidates → POST /read/library/import; local files → Storage → POST /read/library
+        organize-from-pool/          ← selected pool assets (ordered) → POST /read/sections/:id/pages/from-library
+        reorder-pages/               ← drag-reorder → PATCH …/pages/order
+      entities/
+        manga/                       ← Manga types + library list provider
+        section/                     ← Section types
+        page/                        ← Page types + reader runtime/progress
+        library-asset/               ← LibraryAsset types + pool list provider
+      shared/
+        api/read.ts                  ← module-local endpoint callers (metadata only)
+        useSignedPages.ts            ← batch-sign a section's pages for the reader
+```
+
+> Endpoint callers live **in the module** (`modules/read/shared/api/read.ts`), not
+> `shared/api/`, because only this module uses them (per the api-vs-module rule). They
+> cover **metadata only** — the image bytes never go through these callers.
+
+## Routing
+
+Three routes under the existing `ProtectedRoute → AppLayout` children. The paths use
+the **display** name `/lector/*` (user-facing), while the code lives in `modules/read`:
+
+```
+/lector                       → LectorLibraryPage
+/lector/manga/:mangaId        → MangaDetailPage   (tabs read ?tab=volumes|chapters)
+/lector/read/:sectionId       → ReaderPage
+/lector/pool                  → PoolPage          (the unassigned image pool)
+```
+
+A `ReadLibraryProvider` (the library list, mirroring `ConversationsProvider`) wraps
+these so the grid and detail page share one source of truth. One new sidebar nav item,
+labelled **"Lector"**, points at `/lector` (added in `app/layouts/Sidebar/navItems.ts`).
+
+## The two upload flows
+
+### Local upload — direct to Storage
+1. Open a section (or create one via `create-section`).
+2. `UploadTray`: pick local images, **drag to reorder** — this staging order is the
+   page order. Dimensions are read client-side (`Image`/`createImageBitmap`) for the
+   `width/height` metadata.
+3. `upload-pages` uploads each file **straight to Storage** via
+   `shared/lib/storage.ts → uploadToBucket`, to
+   `manga/{userId}/{mangaId}/{sectionId}/{position}-{uuid}.{ext}` — parallel, no
+   backend round-trip for bytes. RLS lets a user write only under their own prefix.
+4. Once uploaded, `POST /read/sections/{id}/pages` records the ordered rows
+   `[{storage_path, position, width, height}]`.
+
+### Scrape — pick from a site
+1. `ScrapePicker`: paste a URL → `scrape-pages` calls `POST /read/scrape {url}`.
+2. Backend returns candidate image URLs; the picker shows them as a selectable,
+   reorderable grid.
+3. `import-pages` sends the chosen, ordered URLs to
+   `POST /read/sections/{id}/import` — the **backend** downloads + uploads them
+   (browsers can't fetch cross-origin/hotlink-protected images) and records the rows.
+4. The picker then refetches the section's pages.
+
+> Both upload flows have a **"send to pool"** variant when you don't yet know which
+> manga the images belong to — see *The image pool* below. `ScrapePicker` and
+> `UploadTray` are reused there; only the destination endpoint differs.
+
+## The image pool (staging)
+
+`/lector/pool` (`PoolPage` + `PoolGrid`) is a personal, manga-less collection you fill
+over time, then drain into series when you're ready. It exists because scraping and
+uploading often happen *before* you've decided the target volume/chapter — you gather
+first, organize later.
+
+**Filling the pool** (`collect-to-pool`):
+- *Scrape → pool:* same `ScrapePicker` candidate flow, but the chosen URLs go to
+  `POST /read/library/import` (backend downloads → `{userId}/_pool/…` → records
+  `library_assets`). You can repeat this across many sessions; assets accumulate.
+- *Upload → pool:* same `UploadTray`, uploading straight to `{userId}/_pool/…` via
+  `shared/lib/storage.ts`, then `POST /read/library` records the rows.
+
+**Draining the pool** (`organize-from-pool`):
+1. `PoolGrid` shows the pool (assets resolved to previews via batch signed URLs, like
+   the reader) and lets you **select + drag-order** the ones for a section.
+2. Pick a target manga + volume/chapter (or create one), then
+   `POST /read/sections/{id}/pages/from-library` with the ordered `asset_ids`.
+3. The backend turns each into a `manga_page` (reusing the same Storage object — no
+   re-upload) and removes it from the pool. The organized assets **disappear from the
+   pool grid** and appear as the section's pages — your "gets a manga link, leaves the
+   pool."
+
+**Discarding**: an unused asset can be deleted (`DELETE /read/library/{id}`), which
+removes both the row and its Storage file.
+
+## Reading — fast & modern
+
+`ReaderPage` loads ordered metadata via `GET /read/sections/{id}/pages`, then
+`useSignedPages` **batch-signs** all of that section's `storage_path`s in one
+`createSignedUrls` call (private bucket → temporary CDN links, ~1h TTL). The `Reader`
+widget then:
+- Renders a **virtualized** vertical scroll (only on-screen pages mounted).
+- **Preloads** the next page(s) ahead of the viewport.
+- Reserves each page's box from the stored `width/height` → **no layout shift**.
+- Uses `loading="lazy"` and an IntersectionObserver to track progress.
+
+Because images load directly from the Storage CDN (not proxied through FastAPI), the
+reader stays fast even for large volumes.
+
+## `shared/lib/storage.ts` (new shared infra)
+
+A thin supabase-js wrapper so features never touch the raw client (mirrors how
+`fetchWithToken` centralizes the token):
+
+```ts
+uploadToBucket(path: string, file: Blob): Promise<void>          // storage.from(MANGA_BUCKET).upload(...)
+createSignedUrls(paths: string[], expiresIn?: number): Promise<string[]>
+```
+
+It reads the same authenticated Supabase session the rest of the app uses, so Storage
+RLS sees the logged-in user. This is the one sanctioned place to use the Supabase
+client for Storage — features/entities call this, not the SDK directly.
+
+## Entities
+
+- `manga` — `Manga` (`id, title, coverPath, updatedAt`), the library list provider.
+- `section` — `Section` (`id, mangaId, kind: "volume"|"chapter", number, title`).
+- `page` — `Page` (`id, storagePath, position, width, height`) + reader progress state.
+- `library-asset` — `LibraryAsset` (`id, storagePath, sourceUrl, width, height,
+  createdAt`) + the pool list provider (newest-first; no `position` — order is chosen
+  at organize time).
+
+## Design notes
+
+- All colors via `--owl-*` CSS variables; proportional units only (per guidelines).
+- The library grid and reader are media-heavy → covers use thumbnails (future) and the
+  reader virtualizes; never render a whole volume's `<img>`s at once.
+- Metadata reads/writes go through `fetchWithToken` (backend); **bytes** go through
+  `shared/lib/storage.ts` (Storage). Two paths, by design — see the guidelines.
