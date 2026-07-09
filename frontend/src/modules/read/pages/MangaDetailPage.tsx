@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ArrowLeft, Plus, Trash2, Upload, Globe, X } from "lucide-react";
+import { LoadingDialog, Modal } from "@/shared/ui";
 import { readApi } from "../shared";
 import {
   useReadLibrary,
@@ -24,6 +25,8 @@ export function MangaDetailPage() {
   const [detail, setDetail] = useState<MangaDetail | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [activeSection, setActiveSection] = useState<Section | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const { createSection, creating } = useCreateSection();
   const [newNumber, setNewNumber] = useState("");
@@ -60,7 +63,7 @@ export function MangaDetailPage() {
     return <p className="py-12 text-center text-sm text-[var(--owl-brown-muted)]">Manga not found.</p>;
   }
   if (!detail) {
-    return <p className="py-12 text-center text-sm text-[var(--owl-brown-muted)]">Loading…</p>;
+    return <LoadingDialog fullScreen={false} message="Fetching your manga…" />;
   }
 
   const sections = detail.sections.filter((s) => s.kind === tab);
@@ -85,8 +88,13 @@ export function MangaDetailPage() {
   };
 
   const deleteManga = async () => {
-    await remove(detail.id);
-    navigate("/lector");
+    setDeleting(true);
+    try {
+      await remove(detail.id);
+      navigate("/lector");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -96,7 +104,7 @@ export function MangaDetailPage() {
           <button
             onClick={() => navigate("/lector")}
             aria-label="Back to library"
-            className="p-1 rounded text-[var(--owl-brown-muted)] hover:text-[var(--owl-brown-deep)] cursor-pointer"
+            className="p-1 rounded text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-brown-mid)]/10 hover:text-[var(--owl-brown-deep)] cursor-pointer"
           >
             <ArrowLeft size={18} />
           </button>
@@ -107,9 +115,9 @@ export function MangaDetailPage() {
             )}
           </div>
           <button
-            onClick={deleteManga}
+            onClick={() => setConfirmDelete(true)}
             aria-label="Delete manga"
-            className="p-1.5 rounded text-[var(--owl-brown-muted)] hover:text-red-600 cursor-pointer"
+            className="p-1.5 rounded text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-danger)]/10 hover:text-[var(--owl-danger)] cursor-pointer"
           >
             <Trash2 size={16} />
           </button>
@@ -162,6 +170,28 @@ export function MangaDetailPage() {
           />
         )}
       </div>
+
+      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)}>
+        <h2 className="text-base font-medium text-[var(--owl-brown-dark)]">Delete "{detail.title}"?</h2>
+        <p className="mt-1 text-sm text-[var(--owl-brown-muted)]">
+          This removes the manga, its sections and pages, and their files. This can't be undone.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={() => setConfirmDelete(false)}
+            className="rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-brown-mid)]/10 hover:text-[var(--owl-brown-deep)] cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={deleteManga}
+            disabled={deleting}
+            className="rounded-md bg-[var(--owl-danger)] px-3 py-1.5 text-sm text-[var(--owl-cream)] transition-colors hover:bg-[var(--owl-danger-deep)] cursor-pointer disabled:opacity-50"
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

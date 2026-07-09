@@ -1,27 +1,27 @@
-import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Layers, Plus } from "lucide-react";
+import { Layers } from "lucide-react";
+import { LoadingDialog } from "@/shared/ui";
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
-import { useCreateManga } from "../features";
+import { useReadLibrary } from "../entities";
 import { MangaGrid } from "../widgets";
 
-/** /lector — the library: every series as a cover grid, plus create + pool links. */
+/** /lector — the library: mascot + blurb and the pool link on top, the manga
+ *  grid below (empty state shows a single centered "add manga" tile). */
 export function LectorLibraryPage() {
   const navigate = useNavigate();
-  const { createManga, creating } = useCreateManga();
-  const [title, setTitle] = useState("");
+  const { mangas, loading, error } = useReadLibrary();
 
-  const create = async () => {
-    const manga = await createManga(title);
-    if (manga) {
-      setTitle("");
-      navigate(`/lector/manga/${manga.id}`);
-    }
-  };
+  // Initial load — show only the mascot dialog, nothing else on the page yet.
+  if (loading && mangas.length === 0) {
+    return <LoadingDialog fullScreen={false} message="Fetching your library…" />;
+  }
+  if (error) {
+    return <p className="py-12 text-center text-sm text-[var(--owl-brown-muted)]">Couldn't load your library.</p>;
+  }
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-6 py-6 flex flex-col gap-5">
+      <div className="mx-auto w-full max-w-5xl px-6 py-6 flex flex-col gap-6">
         <header className="flex items-center gap-3">
           <img src={owlMascot} alt="" aria-hidden="true" className="w-10" />
           <div className="flex-1 min-w-0">
@@ -36,24 +36,6 @@ export function LectorLibraryPage() {
             Image pool
           </button>
         </header>
-
-        <div className="flex gap-2">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
-            placeholder="New manga title…"
-            className="flex-1 min-w-0 max-w-md rounded-md border border-[var(--owl-border)] bg-transparent px-3 py-1.5 text-sm text-[var(--owl-brown-deep)] placeholder:text-[var(--owl-brown-muted)] outline-none focus:border-[var(--owl-orange)]"
-          />
-          <button
-            onClick={create}
-            disabled={creating || !title.trim()}
-            className="flex items-center gap-1.5 rounded-md bg-[var(--owl-brown)] px-3 py-1.5 text-sm text-[var(--owl-cream)] hover:bg-[var(--owl-brown-deep)] transition-colors cursor-pointer disabled:opacity-50"
-          >
-            <Plus size={15} aria-hidden="true" />
-            {creating ? "Creating…" : "Create"}
-          </button>
-        </div>
 
         <MangaGrid />
       </div>

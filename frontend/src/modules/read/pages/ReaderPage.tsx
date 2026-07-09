@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft } from "lucide-react";
+import { LoadingDialog } from "@/shared/ui";
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
 import { readApi, useSignedUrls } from "../shared";
 import type { Page } from "../entities";
@@ -52,7 +53,7 @@ export function ReaderPage() {
         {error ? (
           <p className="py-12 text-center text-sm text-[var(--owl-brown-muted)]">{error}</p>
         ) : pages === null ? (
-          <p className="py-12 text-center text-sm text-[var(--owl-brown-muted)]">Loading…</p>
+          <LoadingDialog fullScreen={false} message="Fetching this section…" />
         ) : pages.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-12">
             <img src={owlMascot} alt="" aria-hidden="true" className="w-28 opacity-80" />

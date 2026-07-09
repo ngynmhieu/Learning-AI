@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Upload, Globe, FolderInput } from "lucide-react";
+import { LoadingDialog } from "@/shared/ui";
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
 import { readApi, useSignedUrls } from "../shared";
 import { useReadLibrary, usePoolAssets, sectionLabel, type Section } from "../entities";
@@ -31,6 +32,11 @@ export function PoolPage() {
     removeAssets([assetId]);
     setSelection((prev) => prev.filter((id) => id !== assetId));
   };
+
+  // Initial load — show only the mascot dialog, nothing else on the page yet.
+  if (loading && assets.length === 0) {
+    return <LoadingDialog fullScreen={false} message="Fetching your pool…" />;
+  }
 
   return (
     <div className="h-full overflow-y-auto">
@@ -109,8 +115,6 @@ export function PoolPage() {
 
         {error ? (
           <p className="py-8 text-center text-sm text-[var(--owl-brown-muted)]">Couldn't load the pool.</p>
-        ) : loading && assets.length === 0 ? (
-          <p className="py-8 text-center text-sm text-[var(--owl-brown-muted)]">Loading…</p>
         ) : (
           <PoolGrid
             assets={assets}

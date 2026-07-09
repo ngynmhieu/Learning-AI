@@ -76,6 +76,8 @@
   --owl-orange: #E8820C;
   --owl-orange-deep: #C86A0A;
   --owl-border: #D4B896;
+  --owl-danger: #903521;
+  --owl-danger-deep: #66261B;
 
   /* shadcn tokens — light */
   --background: oklch(1 0 0);       /* warm parchment */

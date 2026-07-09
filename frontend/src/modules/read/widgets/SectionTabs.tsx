@@ -1,3 +1,4 @@
+import { Tabs } from "@/shared/ui";
 import type { SectionKind } from "../entities";
 
 interface SectionTabsProps {
@@ -5,28 +6,13 @@ interface SectionTabsProps {
   onChange: (kind: SectionKind) => void;
 }
 
-const TABS: { kind: SectionKind; label: string }[] = [
-  { kind: "volume", label: "Volumes" },
-  { kind: "chapter", label: "Chapters" },
+const TABS: { value: SectionKind; label: string }[] = [
+  { value: "volume", label: "Volumes" },
+  { value: "chapter", label: "Chapters" },
 ];
 
-/** Volumes | Chapters switch — the two tabs are just a `kind` filter. */
+/** Volumes | Chapters switch — the two tabs are just a `kind` filter, built on
+ *  the shared `Tabs` control. */
 export function SectionTabs({ active, onChange }: SectionTabsProps) {
-  return (
-    <div className="flex gap-1 rounded-md border border-[var(--owl-border)] p-1 w-fit">
-      {TABS.map(({ kind, label }) => (
-        <button
-          key={kind}
-          onClick={() => onChange(kind)}
-          className={`px-3 py-1 rounded text-sm transition-colors cursor-pointer ${
-            active === kind
-              ? "bg-[var(--owl-brown)]/10 text-[var(--owl-brown-deep)] font-medium"
-              : "text-[var(--owl-brown-muted)] hover:text-[var(--owl-brown-deep)]"
-          }`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
+  return <Tabs tabs={TABS} active={active} onChange={onChange} layoutId="section-tabs" />;
 }
