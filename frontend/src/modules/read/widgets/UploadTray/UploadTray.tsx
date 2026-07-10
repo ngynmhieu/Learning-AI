@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus } from "lucide-react";
-import { UploadItem } from "./components/UploadItem";
+import { PickerGrid, useClickSelect, type ImportStatus } from "../../shared";
 
 interface StagedFile {
   id: string;
@@ -9,17 +9,20 @@ interface StagedFile {
 }
 
 interface UploadTrayProps {
-  /** Called with the staged files in their (drag-chosen) display order. */
-  onConfirm: (files: File[]) => Promise<void> | void;
+  /** Called with `{id, file}` pairs in pick order — the id lets the caller
+   *  report per-file `uploadStatus` back via the same key. */
+  onConfirm: (items: { id: string; file: File }[]) => Promise<void> | void;
   busy: boolean;
+  /** Per-file status while `busy`, keyed by the id passed to `onConfirm`. */
+  uploadStatus?: Record<string, ImportStatus>;
   confirmLabel?: string;
 }
 
-/** Local-file staging: pick images, drag to reorder — the staging order IS the
- *  page order. Bytes later go straight to Storage (see upload features). */
-export function UploadTray({ onConfirm, busy, confirmLabel = "Upload" }: UploadTrayProps) {
+/** Choose local files → pick + order (click, same as ScrapePicker) → upload.
+ *  Bytes later go straight to Storage (see upload features). */
+export function UploadTray({ onConfirm, busy, uploadStatus, confirmLabel = "Upload" }: UploadTrayProps) {
   const [staged, setStaged] = useState<StagedFile[]>([]);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const { picked, setPicked, onItemClick } = useClickSelect(staged.map((item) => item.id));
   const inputRef = useRef<HTMLInputElement>(null);
   const stagedRef = useRef<StagedFile[]>([]);
 
@@ -46,28 +49,13 @@ export function UploadTray({ onConfirm, busy, confirmLabel = "Upload" }: UploadT
     ]);
   };
 
-  const removeAt = (index: number) => {
-    setStaged((prev) => {
-      URL.revokeObjectURL(prev[index].previewUrl);
-      return prev.filter((_, i) => i !== index);
-    });
-  };
-
-  const moveTo = (target: number) => {
-    if (dragIndex === null || dragIndex === target) return;
-    setStaged((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(dragIndex, 1);
-      next.splice(target, 0, moved);
-      return next;
-    });
-    setDragIndex(target);
-  };
-
   const confirm = async () => {
-    await onConfirm(staged.map((item) => item.file));
+    if (picked.length === 0) return;
+    const byId = new Map(staged.map((item) => [item.id, item]));
+    await onConfirm(picked.map((id) => ({ id, file: byId.get(id)!.file })));
     staged.forEach((item) => URL.revokeObjectURL(item.previewUrl));
     setStaged([]);
+    setPicked([]);
   };
 
   return (
@@ -84,46 +72,27 @@ export function UploadTray({ onConfirm, busy, confirmLabel = "Upload" }: UploadT
         }}
       />
 
-      {staged.length > 0 && (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-2">
-          {staged.map((item, index) => (
-            <UploadItem
-              key={item.id}
-              previewUrl={item.previewUrl}
-              name={item.file.name}
-              position={index}
-              dragging={dragIndex === index}
-              onRemove={() => removeAt(index)}
-              onDragStart={() => setDragIndex(index)}
-              onDragEnter={() => moveTo(index)}
-              onDragEnd={() => setDragIndex(null)}
-            />
-          ))}
-        </div>
-      )}
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={busy}
+        className="flex w-fit items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer disabled:opacity-50"
+      >
+        <ImagePlus size={15} aria-hidden="true" />
+        Choose images
+      </button>
 
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => inputRef.current?.click()}
-          disabled={busy}
-          className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer disabled:opacity-50"
-        >
-          <ImagePlus size={15} aria-hidden="true" />
-          Choose images
-        </button>
-        {staged.length > 0 && (
-          <button
-            onClick={confirm}
-            disabled={busy}
-            className="rounded-md bg-[var(--owl-brown)] px-3 py-1.5 text-sm text-[var(--owl-cream)] hover:bg-[var(--owl-brown-deep)] transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {busy ? "Uploading…" : `${confirmLabel} ${staged.length} image${staged.length > 1 ? "s" : ""}`}
-          </button>
-        )}
-      </div>
-      {staged.length > 1 && (
-        <p className="text-xs text-[var(--owl-brown-muted)]">Drag to reorder — this order becomes the page order.</p>
-      )}
+      <PickerGrid
+        items={staged.map((item) => ({ key: item.id, previewUrl: item.previewUrl, label: item.file.name }))}
+        picked={picked}
+        onItemClick={onItemClick}
+        onSelectAll={() => setPicked(staged.map((item) => item.id))}
+        onClear={() => setPicked([])}
+        busy={busy}
+        busyLabel="Uploading…"
+        confirmLabel={confirmLabel}
+        importStatus={uploadStatus}
+        onConfirm={confirm}
+      />
     </div>
   );
 }

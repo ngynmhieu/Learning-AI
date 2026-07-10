@@ -1,63 +1,33 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, Plus, Trash2, Upload, Globe, X } from "lucide-react";
-import { LoadingDialog, Modal } from "@/shared/ui";
-import { readApi } from "../shared";
+import { ArrowLeft, Pencil, Check, Upload, Globe, X } from "lucide-react";
+import { LoadingDialog, Tabs } from "@/shared/ui";
 import {
-  useReadLibrary,
   sectionLabel,
-  type MangaDetail,
+  useMangaDetail,
+  useSectionPages,
   type Section,
   type SectionKind,
 } from "../entities";
-import { useCreateSection, useUploadPages, useImportPages } from "../features";
+import { useCreateSection, useDeleteSection, useUploadPages, useImportPages } from "../features";
 import { SectionTabs, SectionGrid, UploadTray, ScrapePicker } from "../widgets";
 
 /** /lector/manga/:mangaId — one series: Volumes/Chapters tabs, add sections,
- *  and fill a section with pages (local upload or scrape) via the panel below. */
+ *  and fill a section with pages (local upload or scrape) via the panel below.
+ *  Same view/edit split as the library: view is read-only, edit reveals the
+ *  add-section tile and per-card hover actions. */
 export function MangaDetailPage() {
   const { mangaId } = useParams();
   const navigate = useNavigate();
-  const { remove } = useReadLibrary();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: SectionKind = searchParams.get("tab") === "chapters" ? "chapter" : "volume";
 
-  const [detail, setDetail] = useState<MangaDetail | null>(null);
-  const [notFound, setNotFound] = useState(false);
+  const { detail, notFound, refresh } = useMangaDetail(mangaId);
   const [activeSection, setActiveSection] = useState<Section | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const { createSection, creating } = useCreateSection();
-  const [newNumber, setNewNumber] = useState("");
-  const [newTitle, setNewTitle] = useState("");
-
-  // Post-action refetch (create/delete section) — called from event handlers only.
-  const refresh = useCallback(async () => {
-    if (!mangaId) return;
-    try {
-      setDetail(await readApi.getManga(mangaId));
-    } catch {
-      setNotFound(true);
-    }
-  }, [mangaId]);
-
-  // Initial load — no synchronous setState in the effect body.
-  useEffect(() => {
-    if (!mangaId) return;
-    let cancelled = false;
-    readApi
-      .getManga(mangaId)
-      .then((loaded) => {
-        if (!cancelled) setDetail(loaded);
-      })
-      .catch(() => {
-        if (!cancelled) setNotFound(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [mangaId]);
+  const { deleteSection: deleteSectionApi } = useDeleteSection();
 
   if (notFound) {
     return <p className="py-12 text-center text-sm text-[var(--owl-brown-muted)]">Manga not found.</p>;
@@ -68,33 +38,16 @@ export function MangaDetailPage() {
 
   const sections = detail.sections.filter((s) => s.kind === tab);
 
-  const addSection = async () => {
-    const number = newNumber.trim() === "" ? null : Number(newNumber);
-    const section = await createSection(detail.id, {
-      kind: tab,
-      number: Number.isNaN(number) ? null : number,
-      title: newTitle.trim() || null,
-    });
-    setNewNumber("");
-    setNewTitle("");
+  const addSection = async (input: { number: number | null; title: string | null }) => {
+    const section = await createSection(detail.id, { kind: tab, ...input });
     await refresh();
     setActiveSection(section); // fresh section → straight to adding pages
   };
 
   const deleteSection = async (section: Section) => {
-    await readApi.deleteSection(section.id);
+    await deleteSectionApi(section.id);
     if (activeSection?.id === section.id) setActiveSection(null);
     await refresh();
-  };
-
-  const deleteManga = async () => {
-    setDeleting(true);
-    try {
-      await remove(detail.id);
-      navigate("/lector");
-    } finally {
-      setDeleting(false);
-    }
   };
 
   return (
@@ -104,9 +57,9 @@ export function MangaDetailPage() {
           <button
             onClick={() => navigate("/lector")}
             aria-label="Back to library"
-            className="p-1 rounded text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-brown-mid)]/10 hover:text-[var(--owl-brown-deep)] cursor-pointer"
+            className="p-1.5 rounded-md text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-brown-mid)]/10 hover:text-[var(--owl-brown-deep)] cursor-pointer"
           >
-            <ArrowLeft size={18} />
+            <ArrowLeft size={24} />
           </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-xl text-[var(--owl-brown-dark)] truncate">{detail.title}</h1>
@@ -115,11 +68,11 @@ export function MangaDetailPage() {
             )}
           </div>
           <button
-            onClick={() => setConfirmDelete(true)}
-            aria-label="Delete manga"
-            className="p-1.5 rounded text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-danger)]/10 hover:text-[var(--owl-danger)] cursor-pointer"
+            onClick={() => setEditing((e) => !e)}
+            className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
           >
-            <Trash2 size={16} />
+            {editing ? <Check size={15} aria-hidden="true" /> : <Pencil size={15} aria-hidden="true" />}
+            {editing ? "Done" : "Edit"}
           </button>
         </header>
 
@@ -129,36 +82,15 @@ export function MangaDetailPage() {
         />
 
         <SectionGrid
+          kind={tab}
           sections={sections}
+          editing={editing}
           onOpen={(section) => navigate(`/lector/read/${section.id}`)}
           onAddPages={setActiveSection}
           onDelete={deleteSection}
+          onCreate={addSection}
+          creating={creating}
         />
-
-        <div className="flex items-center gap-2">
-          <input
-            value={newNumber}
-            onChange={(e) => setNewNumber(e.target.value)}
-            placeholder="No."
-            inputMode="decimal"
-            className="w-16 rounded-md border border-[var(--owl-border)] bg-transparent px-2 py-1.5 text-sm text-[var(--owl-brown-deep)] placeholder:text-[var(--owl-brown-muted)] outline-none focus:border-[var(--owl-orange)]"
-          />
-          <input
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addSection()}
-            placeholder={`New ${tab} title (optional)…`}
-            className="flex-1 min-w-0 max-w-sm rounded-md border border-[var(--owl-border)] bg-transparent px-3 py-1.5 text-sm text-[var(--owl-brown-deep)] placeholder:text-[var(--owl-brown-muted)] outline-none focus:border-[var(--owl-orange)]"
-          />
-          <button
-            onClick={addSection}
-            disabled={creating}
-            className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            <Plus size={15} aria-hidden="true" />
-            Add {tab}
-          </button>
-        </div>
 
         {activeSection && (
           <AddPagesPanel
@@ -170,28 +102,6 @@ export function MangaDetailPage() {
           />
         )}
       </div>
-
-      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)}>
-        <h2 className="text-base font-medium text-[var(--owl-brown-dark)]">Delete "{detail.title}"?</h2>
-        <p className="mt-1 text-sm text-[var(--owl-brown-muted)]">
-          This removes the manga, its sections and pages, and their files. This can't be undone.
-        </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            onClick={() => setConfirmDelete(false)}
-            className="rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-brown-mid)]/10 hover:text-[var(--owl-brown-deep)] cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={deleteManga}
-            disabled={deleting}
-            className="rounded-md bg-[var(--owl-danger)] px-3 py-1.5 text-sm text-[var(--owl-cream)] transition-colors hover:bg-[var(--owl-danger-deep)] cursor-pointer disabled:opacity-50"
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </button>
-        </div>
-      </Modal>
     </div>
   );
 }
@@ -203,23 +113,21 @@ interface AddPagesPanelProps {
   onDone: () => void;
 }
 
+type AddPagesMode = "upload" | "scrape";
+
+const ADD_PAGES_MODE_TABS: { value: AddPagesMode; label: string; icon: typeof Globe }[] = [
+  { value: "upload", label: "Upload", icon: Upload },
+  { value: "scrape", label: "Scrape", icon: Globe },
+];
+
 /** Fill one section with pages — Upload (direct-to-storage) or Scrape (backend
  *  import). New pages append after the section's existing ones. */
 function AddPagesPanel({ mangaId, section, onClose, onDone }: AddPagesPanelProps) {
-  const [mode, setMode] = useState<"upload" | "scrape">("upload");
-  const [pageCount, setPageCount] = useState<number | null>(null);
-  const { uploadPages, uploading } = useUploadPages(mangaId, section.id);
-  const { importPages, importing } = useImportPages(section.id);
-
-  useEffect(() => {
-    let cancelled = false;
-    readApi.listPages(section.id).then((pages) => {
-      if (!cancelled) setPageCount(pages.length);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [section.id]);
+  const [mode, setMode] = useState<AddPagesMode>("upload");
+  const { pages } = useSectionPages(section.id);
+  const pageCount = pages?.length ?? null;
+  const { uploadPages, uploading, uploadStatus } = useUploadPages(mangaId, section.id);
+  const { importPages, importing, importStatus } = useImportPages(section.id);
 
   const ready = pageCount !== null;
 
@@ -234,28 +142,7 @@ function AddPagesPanel({ mangaId, section, onClose, onDone }: AddPagesPanelProps
             </span>
           )}
         </h2>
-        <div className="flex gap-1 rounded-md border border-[var(--owl-border)] p-0.5">
-          <button
-            onClick={() => setMode("upload")}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
-              mode === "upload"
-                ? "bg-[var(--owl-brown)]/10 text-[var(--owl-brown-deep)] font-medium"
-                : "text-[var(--owl-brown-muted)]"
-            }`}
-          >
-            <Upload size={12} aria-hidden="true" /> Upload
-          </button>
-          <button
-            onClick={() => setMode("scrape")}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
-              mode === "scrape"
-                ? "bg-[var(--owl-brown)]/10 text-[var(--owl-brown-deep)] font-medium"
-                : "text-[var(--owl-brown-muted)]"
-            }`}
-          >
-            <Globe size={12} aria-hidden="true" /> Scrape
-          </button>
-        </div>
+        <Tabs tabs={ADD_PAGES_MODE_TABS} active={mode} onChange={setMode} layoutId="add-pages-mode" />
         <button
           onClick={onClose}
           aria-label="Close panel"
@@ -270,14 +157,16 @@ function AddPagesPanel({ mangaId, section, onClose, onDone }: AddPagesPanelProps
       ) : mode === "upload" ? (
         <UploadTray
           busy={uploading}
-          onConfirm={async (files) => {
-            await uploadPages(files, pageCount);
+          uploadStatus={uploadStatus}
+          onConfirm={async (items) => {
+            await uploadPages(items, pageCount);
             onDone();
           }}
         />
       ) : (
         <ScrapePicker
           busy={importing}
+          importStatus={importStatus}
           onImport={async (urls, referer) => {
             await importPages(urls, referer);
             onDone();

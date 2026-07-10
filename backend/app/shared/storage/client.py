@@ -8,8 +8,9 @@ avoid blocking the event loop (same pattern as `AuthService.verify`).
 """
 from __future__ import annotations
 
+import httpx
 from fastapi.concurrency import run_in_threadpool
-from supabase import Client, create_client
+from supabase import Client, ClientOptions, create_client
 
 
 class StorageClient:
@@ -20,7 +21,15 @@ class StorageClient:
 
     @classmethod
     def create(cls, url: str, service_role_key: str, bucket: str) -> "StorageClient":
-        return cls(create_client(url, service_role_key), bucket)
+        # storage3's default client negotiates HTTP/2, multiplexing every request
+        # over one shared connection. The read module's scrape-import runs several
+        # uploads concurrently (each in its own threadpool worker via `upload`
+        # below), and concurrent threads racing on that one multiplexed socket
+        # raises WinError 10035 (non-blocking recv) on Windows. Plain HTTP/1.1
+        # instead opens one pooled connection per concurrent request.
+        http_client = httpx.Client(http2=False)
+        options = ClientOptions(httpx_client=http_client)
+        return cls(create_client(url, service_role_key, options), bucket)
 
     async def upload(self, path: str, data: bytes, content_type: str | None = None) -> None:
         # Paths embed a fresh UUID and are never rewritten (immutable content),

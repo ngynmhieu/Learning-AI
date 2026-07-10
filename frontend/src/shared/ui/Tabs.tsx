@@ -1,8 +1,10 @@
 import { motion } from "motion/react";
+import type { LucideIcon } from "lucide-react";
 
 interface Tab<T extends string> {
   value: T;
   label: string;
+  icon?: LucideIcon;
 }
 
 interface TabsProps<T extends string> {
@@ -26,7 +28,7 @@ export function Tabs<T extends string>({ tabs, active, onChange, layoutId }: Tab
         <button
           key={tab.value}
           onClick={() => onChange(tab.value)}
-          className={`relative px-3 py-1 rounded text-sm cursor-pointer transition-colors ${
+          className={`relative flex items-center gap-1.5 px-3 py-1 rounded text-sm cursor-pointer transition-colors ${
             active === tab.value
               ? "text-[var(--owl-brown-deep)] font-medium"
               : "text-[var(--owl-brown-muted)] hover:text-[var(--owl-brown-deep)]"
@@ -39,6 +41,7 @@ export function Tabs<T extends string>({ tabs, active, onChange, layoutId }: Tab
               className="absolute inset-0 rounded bg-[var(--owl-brown)]/10"
             />
           )}
+          {tab.icon && <tab.icon size={14} aria-hidden="true" className="relative" />}
           <span className="relative">{tab.label}</span>
         </button>
       ))}

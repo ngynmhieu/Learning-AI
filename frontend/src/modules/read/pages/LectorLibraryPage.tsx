@@ -1,15 +1,18 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Layers } from "lucide-react";
+import { Layers, Pencil, Check } from "lucide-react";
 import { LoadingDialog } from "@/shared/ui";
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
 import { useReadLibrary } from "../entities";
 import { MangaGrid } from "../widgets";
 
 /** /lector — the library: mascot + blurb and the pool link on top, the manga
- *  grid below (empty state shows a single centered "add manga" tile). */
+ *  grid below. View mode is read-only browsing; Edit mode reveals the "add
+ *  manga" tile and per-cover upload buttons. */
 export function LectorLibraryPage() {
   const navigate = useNavigate();
   const { mangas, loading, error } = useReadLibrary();
+  const [editing, setEditing] = useState(false);
 
   // Initial load — show only the mascot dialog, nothing else on the page yet.
   if (loading && mangas.length === 0) {
@@ -29,6 +32,13 @@ export function LectorLibraryPage() {
             <p className="text-sm text-[var(--owl-brown-muted)]">Your manga library.</p>
           </div>
           <button
+            onClick={() => setEditing((e) => !e)}
+            className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
+          >
+            {editing ? <Check size={15} aria-hidden="true" /> : <Pencil size={15} aria-hidden="true" />}
+            {editing ? "Done" : "Edit"}
+          </button>
+          <button
             onClick={() => navigate("/lector/pool")}
             className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
           >
@@ -37,7 +47,7 @@ export function LectorLibraryPage() {
           </button>
         </header>
 
-        <MangaGrid />
+        <MangaGrid editing={editing} />
       </div>
     </div>
   );

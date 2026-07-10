@@ -1,5 +1,5 @@
 import { Tabs } from "@/shared/ui";
-import type { SectionKind } from "../entities";
+import type { SectionKind } from "../../entities";
 
 interface SectionTabsProps {
   active: SectionKind;

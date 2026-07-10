@@ -78,6 +78,8 @@
   --owl-border: #D4B896;
   --owl-danger: #903521;
   --owl-danger-deep: #66261B;
+  --owl-shadow-lift: 0 8px 20px -10px rgba(46, 26, 14, 0.25);
+  --owl-shadow-glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.4);
 
   /* shadcn tokens — light */
   --background: oklch(1 0 0);       /* warm parchment */
@@ -153,6 +155,39 @@ body {
   min-height: 100svh;
   display: flex;
   flex-direction: column;
+}
+
+/* Themed scrollbar — owl-* colors are fixed across light/dark (same as
+   borders elsewhere), so no separate dark-mode override is needed. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--owl-brown-mid) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 0.625rem;
+  height: 0.625rem;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  box-shadow: none;
+}
+
+::-webkit-scrollbar-thumb {
+  background-image: linear-gradient(180deg, var(--owl-brown-mid), var(--owl-brown-deep));
+  border-radius: 9999px;
+  border: 0.125rem solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-image: linear-gradient(180deg, var(--owl-brown), var(--owl-brown-dark));
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 h1,

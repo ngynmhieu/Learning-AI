@@ -1,37 +1,65 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, Upload, Globe, FolderInput } from "lucide-react";
-import { LoadingDialog } from "@/shared/ui";
-import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
-import { readApi, useSignedUrls } from "../shared";
-import { useReadLibrary, usePoolAssets, sectionLabel, type Section } from "../entities";
-import { useCollectToPool, useOrganizeFromPool } from "../features";
+import { ArrowLeft, Upload, Globe, Trash2, Pencil, Check } from "lucide-react";
+import { LoadingDialog, Tabs } from "@/shared/ui";
+import { useSignedUrls, useClickSelect, ImageLightbox } from "../shared";
+import { usePoolAssets } from "../entities";
+import { useCollectToPool, useDiscardFromPool } from "../features";
 import { PoolGrid, UploadTray, ScrapePicker } from "../widgets";
 
-/** /lector/pool — the staging pool: collect images (scrape or upload) with no
- *  manga attached, then pick + order them into a volume/chapter later. */
+type CollectMode = "scrape" | "upload";
+
+const COLLECT_MODE_TABS: { value: CollectMode; label: string; icon: typeof Globe }[] = [
+  { value: "scrape", label: "Scrape", icon: Globe },
+  { value: "upload", label: "Upload", icon: Upload },
+];
+
+/** /lector/pool — manage the staging pool: collect images (scrape or upload)
+ *  with no manga attached, or discard ones you don't want. Organizing them
+ *  into a manga's volume/chapter happens from that section, not here. */
 export function PoolPage() {
   const navigate = useNavigate();
   const { assets, loading, error, addAssets, removeAssets } = usePoolAssets();
   const urls = useSignedUrls(assets.map((a) => a.storagePath));
 
-  const [mode, setMode] = useState<"scrape" | "upload">("scrape");
-  const { importUrlsToPool, uploadFilesToPool, collecting } = useCollectToPool();
+  const [mode, setMode] = useState<CollectMode>("scrape");
+  const { importUrlsToPool, uploadFilesToPool, collecting, importStatus } = useCollectToPool();
 
-  /** Picked asset ids, in pick order (= the page order after organizing). */
-  const [selection, setSelection] = useState<string[]>([]);
+  /** View is read-only (click to preview); edit reveals selection + delete. */
+  const [editing, setEditing] = useState(false);
+  /** Index into `assets` for the view-mode lightbox, or null when closed. */
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
-  const toggle = (assetId: string) => {
-    setSelection((prev) =>
-      prev.includes(assetId) ? prev.filter((id) => id !== assetId) : [...prev, assetId]
-    );
+  /** Selected asset ids, for bulk delete — click toggles one, shift-click
+   *  extends from the last-clicked card to the current one. */
+  const { picked: selected, setPicked: setSelected, onItemClick: handleSelectClick } = useClickSelect(
+    assets.map((a) => a.id)
+  );
+  const { discardOne, discardMany, deletingIds } = useDiscardFromPool();
+
+  const toggleEditing = () => {
+    setEditing((e) => !e);
+    setSelected([]);
   };
 
-  const discard = async (assetId: string) => {
-    await readApi.discardLibraryAsset(assetId);
+  const handleCardClick = (assetId: string, index: number, event: React.MouseEvent) => {
+    if (editing) {
+      handleSelectClick(assetId, index, event);
+      return;
+    }
+    setPreviewIndex(index);
+  };
+
+  const previewAsset = previewIndex !== null ? assets[previewIndex] : null;
+  const previewUrl = previewAsset ? (urls[previewAsset.storagePath] ?? null) : null;
+
+  const handleDiscarded = (assetId: string) => {
     removeAssets([assetId]);
-    setSelection((prev) => prev.filter((id) => id !== assetId));
+    setSelected((prev) => prev.filter((id) => id !== assetId));
   };
+
+  const discardSingle = (assetId: string) => discardOne(assetId, handleDiscarded);
+  const deleteSelected = () => discardMany(selected, handleDiscarded);
 
   // Initial load — show only the mascot dialog, nothing else on the page yet.
   if (loading && assets.length === 0) {
@@ -45,72 +73,72 @@ export function PoolPage() {
           <button
             onClick={() => navigate("/lector")}
             aria-label="Back to library"
-            className="p-1 rounded text-[var(--owl-brown-muted)] hover:text-[var(--owl-brown-deep)] cursor-pointer"
+            className="p-1.5 rounded-md text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-brown-mid)]/10 hover:text-[var(--owl-brown-deep)] cursor-pointer"
           >
-            <ArrowLeft size={18} />
+            <ArrowLeft size={24} />
           </button>
-          <img src={owlMascot} alt="" aria-hidden="true" className="w-10" />
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl text-[var(--owl-brown-dark)]">Image pool</h1>
-            <p className="text-sm text-[var(--owl-brown-muted)]">
-              Collect now, organize into mangas later.
-            </p>
-          </div>
+          <h1 className="flex-1 min-w-0 text-xl text-[var(--owl-brown-dark)] truncate">Image pool</h1>
+          <button
+            onClick={toggleEditing}
+            className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
+          >
+            {editing ? <Check size={15} aria-hidden="true" /> : <Pencil size={15} aria-hidden="true" />}
+            {editing ? "Done" : "Edit"}
+          </button>
         </header>
 
         <section className="rounded-md border border-[var(--owl-border)] bg-[var(--owl-cream)]/30 p-4 flex flex-col gap-3">
           <div className="flex items-center gap-2">
-            <h2 className="flex-1 text-sm font-medium text-[var(--owl-brown-deep)]">Collect images</h2>
-            <div className="flex gap-1 rounded-md border border-[var(--owl-border)] p-0.5">
-              <button
-                onClick={() => setMode("scrape")}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
-                  mode === "scrape"
-                    ? "bg-[var(--owl-brown)]/10 text-[var(--owl-brown-deep)] font-medium"
-                    : "text-[var(--owl-brown-muted)]"
-                }`}
-              >
-                <Globe size={12} aria-hidden="true" /> Scrape
-              </button>
-              <button
-                onClick={() => setMode("upload")}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
-                  mode === "upload"
-                    ? "bg-[var(--owl-brown)]/10 text-[var(--owl-brown-deep)] font-medium"
-                    : "text-[var(--owl-brown-muted)]"
-                }`}
-              >
-                <Upload size={12} aria-hidden="true" /> Upload
-              </button>
-            </div>
+            <h2 className="flex-1 text-xs font-medium text-[var(--owl-brown-deep)]">Collect images</h2>
+            <Tabs tabs={COLLECT_MODE_TABS} active={mode} onChange={setMode} layoutId="pool-collect-mode" />
           </div>
           {mode === "scrape" ? (
             <ScrapePicker
               busy={collecting}
+              importStatus={importStatus}
               importLabel="Collect"
               onImport={async (urls, referer) => {
-                addAssets(await importUrlsToPool(urls, referer));
+                await importUrlsToPool(urls, referer, addAssets);
               }}
             />
           ) : (
             <UploadTray
               busy={collecting}
+              uploadStatus={importStatus}
               confirmLabel="Collect"
-              onConfirm={async (files) => {
-                addAssets(await uploadFilesToPool(files));
+              onConfirm={async (items) => {
+                await uploadFilesToPool(items, addAssets);
               }}
             />
           )}
         </section>
 
-        {selection.length > 0 && (
-          <OrganizeControls
-            selection={selection}
-            onOrganized={(ids) => {
-              removeAssets(ids);
-              setSelection([]);
-            }}
-          />
+        {editing && selected.length > 0 && (
+          <section className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--owl-border)] bg-[var(--owl-cream)]/40 px-4 py-3">
+            <p className="text-sm text-[var(--owl-brown-deep)]">
+              {selected.length} image{selected.length > 1 ? "s" : ""} selected
+            </p>
+            <button
+              onClick={() => setSelected(assets.map((a) => a.id))}
+              className="text-xs text-[var(--owl-orange-deep)] hover:underline cursor-pointer"
+            >
+              Select all
+            </button>
+            <button
+              onClick={() => setSelected([])}
+              className="text-xs text-[var(--owl-brown-muted)] hover:underline cursor-pointer"
+            >
+              Clear
+            </button>
+            <button
+              onClick={deleteSelected}
+              disabled={selected.every((id) => deletingIds.has(id))}
+              className="ml-auto flex items-center gap-1.5 rounded-md bg-[var(--owl-danger)] px-3 py-1.5 text-sm text-[var(--owl-cream)] hover:bg-[var(--owl-danger-deep)] transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Trash2 size={15} aria-hidden="true" />
+              Delete {selected.length}
+            </button>
+          </section>
         )}
 
         {error ? (
@@ -119,94 +147,25 @@ export function PoolPage() {
           <PoolGrid
             assets={assets}
             urls={urls}
-            selection={selection}
-            onToggle={toggle}
-            onDiscard={discard}
+            editing={editing}
+            selected={selected}
+            deletingIds={deletingIds}
+            onCardClick={handleCardClick}
+            onDiscard={discardSingle}
           />
         )}
       </div>
+
+      <ImageLightbox
+        imageUrl={previewUrl}
+        onClose={() => setPreviewIndex(null)}
+        onPrev={previewIndex !== null && previewIndex > 0 ? () => setPreviewIndex(previewIndex - 1) : undefined}
+        onNext={
+          previewIndex !== null && previewIndex < assets.length - 1
+            ? () => setPreviewIndex(previewIndex + 1)
+            : undefined
+        }
+      />
     </div>
-  );
-}
-
-interface OrganizeControlsProps {
-  /** Picked asset ids in pick order. */
-  selection: string[];
-  onOrganized: (assetIds: string[]) => void;
-}
-
-/** Pick a target manga + volume/chapter for the current selection, then move the
- *  assets in (pool → pages, in pick order — no re-upload, metadata only). */
-function OrganizeControls({ selection, onOrganized }: OrganizeControlsProps) {
-  const navigate = useNavigate();
-  const { mangas } = useReadLibrary();
-  const [mangaId, setMangaId] = useState("");
-  const [sections, setSections] = useState<Section[]>([]);
-  const [sectionId, setSectionId] = useState("");
-  const { organize, organizing } = useOrganizeFromPool();
-
-  // Fetch the chosen manga's sections; the reset happens in the select handler.
-  useEffect(() => {
-    if (!mangaId) return;
-    let cancelled = false;
-    readApi.getManga(mangaId).then((detail) => {
-      if (!cancelled) setSections(detail.sections);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [mangaId]);
-
-  const pickManga = (id: string) => {
-    setMangaId(id);
-    setSections([]);
-    setSectionId("");
-  };
-
-  const run = async () => {
-    if (!sectionId) return;
-    await organize(sectionId, selection);
-    onOrganized(selection);
-    navigate(`/lector/read/${sectionId}`);
-  };
-
-  const selectClass =
-    "rounded-md border border-[var(--owl-border)] bg-[var(--bg)] px-2 py-1.5 text-sm text-[var(--owl-brown-deep)] outline-none focus:border-[var(--owl-orange)] cursor-pointer";
-
-  return (
-    <section className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--owl-orange)]/50 bg-[var(--accent-bg)] px-4 py-3">
-      <p className="text-sm text-[var(--owl-brown-deep)]">
-        {selection.length} image{selection.length > 1 ? "s" : ""} picked →
-      </p>
-      <select value={mangaId} onChange={(e) => pickManga(e.target.value)} className={selectClass}>
-        <option value="">Choose manga…</option>
-        {mangas.map((manga) => (
-          <option key={manga.id} value={manga.id}>
-            {manga.title}
-          </option>
-        ))}
-      </select>
-      <select
-        value={sectionId}
-        onChange={(e) => setSectionId(e.target.value)}
-        disabled={!mangaId}
-        className={selectClass}
-      >
-        <option value="">Choose section…</option>
-        {sections.map((section) => (
-          <option key={section.id} value={section.id}>
-            {sectionLabel(section)}
-          </option>
-        ))}
-      </select>
-      <button
-        onClick={run}
-        disabled={!sectionId || organizing}
-        className="flex items-center gap-1.5 rounded-md bg-[var(--owl-brown)] px-3 py-1.5 text-sm text-[var(--owl-cream)] hover:bg-[var(--owl-brown-deep)] transition-colors cursor-pointer disabled:opacity-50"
-      >
-        <FolderInput size={15} aria-hidden="true" />
-        {organizing ? "Organizing…" : "Organize"}
-      </button>
-    </section>
   );
 }

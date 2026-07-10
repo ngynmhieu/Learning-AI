@@ -1,8 +1,10 @@
 export { useCreateManga } from "./create-manga";
 export { useCreateSection } from "./create-section";
+export { useDeleteSection } from "./delete-section";
 export { useUploadPages } from "./upload-pages";
+export { useUploadCover } from "./upload-cover";
 export { useScrapePages } from "./scrape-pages";
 export { useImportPages } from "./import-pages";
 export { useCollectToPool } from "./collect-to-pool";
-export { useOrganizeFromPool } from "./organize-from-pool";
+export { useDiscardFromPool } from "./discard-from-pool";
 export { useReorderPages } from "./reorder-pages";

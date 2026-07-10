@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
 import { Modal } from "@/shared/ui";
+import { AddTile } from "../../../../shared";
 
 interface AddMangaCardProps {
   onCreate: (title: string) => Promise<void> | void;
@@ -28,19 +28,7 @@ export function AddMangaCard({ onCreate, creating }: AddMangaCardProps) {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="group relative flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-md border border-dashed border-[var(--owl-border)] text-[var(--owl-brown-muted)] transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-[var(--owl-orange)]/60 hover:text-[var(--owl-brown-deep)] hover:shadow-[0_8px_20px_-10px_rgba(46,26,14,0.25)] cursor-pointer"
-      >
-        {/* iOS-style frosted glass fill, matching MangaCard's hover treatment */}
-        <div
-          className="pointer-events-none absolute inset-0 border border-white/15 bg-white/10 opacity-0
-                     shadow-[inset_0_1px_0_0_rgba(255,255,255,0.4)] backdrop-blur-xl backdrop-saturate-150
-                     transition-opacity duration-300 ease-out group-hover:opacity-100"
-        />
-        <Plus size={28} aria-hidden="true" className="relative" />
-        <span className="relative text-xs">New manga</span>
-      </button>
+      <AddTile onClick={() => setOpen(true)} label="New manga" />
 
       <Modal open={open} onClose={close}>
         <h2 className="text-base font-medium text-[var(--owl-brown-dark)]">New manga</h2>

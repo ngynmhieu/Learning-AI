@@ -53,7 +53,10 @@ export function ReadLibraryProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const update = useCallback(
-    async (id: string, patch: { title?: string; description?: string | null }) => {
+    async (
+      id: string,
+      patch: { title?: string; description?: string | null; coverPath?: string | null }
+    ) => {
       const updated = await readApi.updateManga(id, patch);
       setMangas((prev) => prev.map((m) => (m.id === id ? updated : m)));
     },

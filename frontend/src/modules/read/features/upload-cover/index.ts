@@ -1,0 +1,1 @@
+export { useUploadCover } from "./useUploadCover";
