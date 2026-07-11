@@ -15,6 +15,11 @@ class SectionCreate(BaseModel):
     title: str | None = None
 
 
+class SectionUpdate(BaseModel):
+    """Body for `PATCH /read/sections/{id}` — all fields optional (partial update)."""
+    cover_path: str | None = None
+
+
 # --- responses (backend → client) ------------------------------------------
 
 class SectionSummary(BaseModel):
@@ -27,4 +32,6 @@ class SectionSummary(BaseModel):
     number: float | None = None
     title: str | None = None
     cover_path: str | None = None
+    """Explicitly-set cover; falls back to `first_page_path` on the frontend when unset."""
+    first_page_path: str | None = None
     created_at: datetime

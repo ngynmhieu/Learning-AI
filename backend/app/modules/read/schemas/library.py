@@ -33,6 +33,20 @@ class OrganizeRequest(BaseModel):
     asset_ids: list[uuid.UUID] = Field(..., min_length=1)
 
 
+class CoverFromLibraryRequest(BaseModel):
+    """Body for `POST /read/mangas/{id}/cover/from-library` and
+    `POST /read/sections/{id}/cover/from-library`.
+
+    The chosen pool asset becomes the cover (`cover_path` points at its existing
+    Storage object — no byte move) and is removed from the pool, same idea as
+    `OrganizeRequest` but one asset and no `manga_pages` row. Removing it from the
+    pool (not just leaving it there) matters: `discard_library_asset` deletes the
+    Storage object too, so a cover-turned-pool-asset left behind could be
+    discarded later and silently break the cover it's now pointed at.
+    """
+    asset_id: uuid.UUID
+
+
 # --- responses (backend → client) ------------------------------------------
 
 class LibraryAssetInfo(BaseModel):

@@ -13,6 +13,7 @@ from backend.app.modules.auth.schemas import CurrentUser
 from backend.app.shared.storage import StorageClient
 from ..repository import ReadRepository
 from ..schemas import (
+    CoverFromLibraryRequest,
     LibraryAssetInfo,
     LibraryAssetRecord,
     MangaCreate,
@@ -23,6 +24,7 @@ from ..schemas import (
     PageRecord,
     SectionCreate,
     SectionSummary,
+    SectionUpdate,
 )
 
 
@@ -48,9 +50,15 @@ class ReadService:
         if manga is None:
             return None
         sections = await self._repo.list_sections(manga_id)
+        first_pages = await self._repo.first_page_paths([section.id for section in sections])
         return MangaDetail(
             **MangaSummary.model_validate(manga).model_dump(),
-            sections=[SectionSummary.model_validate(section) for section in sections],
+            sections=[
+                SectionSummary.model_validate(section).model_copy(
+                    update={"first_page_path": first_pages.get(section.id)}
+                )
+                for section in sections
+            ],
         )
 
     async def update_manga(self, manga_id: uuid.UUID, body: MangaUpdate) -> MangaSummary | None:
@@ -62,6 +70,24 @@ class ReadService:
             await self._repo.update_manga(manga_id, self._user_id, **fields)
             await self._repo.commit()
             manga = await self._repo.get_manga(manga_id, self._user_id)
+        return MangaSummary.model_validate(manga)
+
+    async def set_manga_cover_from_library(
+        self, manga_id: uuid.UUID, body: CoverFromLibraryRequest
+    ) -> MangaSummary | None:
+        """Same idea as `organize_from_library`, just one asset and no `manga_pages`
+        row: point `cover_path` at the asset's existing object, then remove it from
+        the pool (not just leave it there — see `CoverFromLibraryRequest`)."""
+        if await self._repo.get_manga(manga_id, self._user_id) is None:
+            return None
+        assets = await self._repo.get_library_assets([body.asset_id], self._user_id)
+        if not assets:
+            raise HTTPException(status_code=400, detail="asset_id is not an owned pool asset")
+
+        await self._repo.update_manga(manga_id, self._user_id, cover_path=assets[0].storage_path)
+        await self._repo.delete_library_assets([body.asset_id], self._user_id)
+        await self._repo.commit()
+        manga = await self._repo.get_manga(manga_id, self._user_id)
         return MangaSummary.model_validate(manga)
 
     async def delete_manga(self, manga_id: uuid.UUID) -> bool:
@@ -83,6 +109,34 @@ class ReadService:
         if section is None:
             return None
         await self._repo.commit()
+        return SectionSummary.model_validate(section)
+
+    async def update_section(self, section_id: uuid.UUID, body: SectionUpdate) -> SectionSummary | None:
+        section = await self._repo.get_section(section_id, self._user_id)
+        if section is None:
+            return None
+        fields = body.model_dump(exclude_unset=True)
+        if fields:
+            await self._repo.update_section(section_id, self._user_id, **fields)
+            await self._repo.commit()
+            section = await self._repo.get_section(section_id, self._user_id)
+        return SectionSummary.model_validate(section)
+
+    async def set_section_cover_from_library(
+        self, section_id: uuid.UUID, body: CoverFromLibraryRequest
+    ) -> SectionSummary | None:
+        """Section equivalent of `set_manga_cover_from_library` — see there for why
+        the asset is removed from the pool, not just left in place."""
+        if await self._repo.get_section(section_id, self._user_id) is None:
+            return None
+        assets = await self._repo.get_library_assets([body.asset_id], self._user_id)
+        if not assets:
+            raise HTTPException(status_code=400, detail="asset_id is not an owned pool asset")
+
+        await self._repo.update_section(section_id, self._user_id, cover_path=assets[0].storage_path)
+        await self._repo.delete_library_assets([body.asset_id], self._user_id)
+        await self._repo.commit()
+        section = await self._repo.get_section(section_id, self._user_id)
         return SectionSummary.model_validate(section)
 
     async def delete_section(self, section_id: uuid.UUID) -> bool:

@@ -90,7 +90,7 @@ export function PoolPage() {
         <section className="rounded-md border border-[var(--owl-border)] bg-[var(--owl-cream)]/30 p-4 flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <h2 className="flex-1 text-xs font-medium text-[var(--owl-brown-deep)]">Collect images</h2>
-            <Tabs tabs={COLLECT_MODE_TABS} active={mode} onChange={setMode} layoutId="pool-collect-mode" />
+            <Tabs tabs={COLLECT_MODE_TABS} active={mode} onChange={setMode} />
           </div>
           {mode === "scrape" ? (
             <ScrapePicker
@@ -98,7 +98,7 @@ export function PoolPage() {
               importStatus={importStatus}
               importLabel="Collect"
               onImport={async (urls, referer) => {
-                await importUrlsToPool(urls, referer, addAssets);
+                addAssets(await importUrlsToPool(urls, referer));
               }}
             />
           ) : (
@@ -107,7 +107,7 @@ export function PoolPage() {
               uploadStatus={importStatus}
               confirmLabel="Collect"
               onConfirm={async (items) => {
-                await uploadFilesToPool(items, addAssets);
+                addAssets(await uploadFilesToPool(items));
               }}
             />
           )}

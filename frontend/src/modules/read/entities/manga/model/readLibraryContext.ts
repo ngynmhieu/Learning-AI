@@ -14,6 +14,11 @@ export interface ReadLibraryContextValue {
     id: string,
     patch: { title?: string; description?: string | null; coverPath?: string | null }
   ) => Promise<void>;
+  /** Merge an already-fetched `Manga` into local state — for callers that hit a
+   *  different endpoint than `updateManga` (e.g. `useSetMangaCoverFromPool`, which
+   *  calls the cover/from-library route) but still want the same instant local
+   *  reflection `update` gives, without firing a second, redundant PATCH. */
+  applyUpdate: (manga: Manga) => void;
   /** Delete on the backend (rows + Storage files), then drop it locally. */
   remove: (id: string) => Promise<void>;
 }

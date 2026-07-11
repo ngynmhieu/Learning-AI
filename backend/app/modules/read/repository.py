@@ -106,6 +106,40 @@ class ReadRepository:
         )
         return result.rowcount > 0
 
+    async def update_section(self, section_id: uuid.UUID, user_id: uuid.UUID, **fields) -> None:
+        """Apply `fields` (already existence/ownership-checked by the caller)."""
+        if not fields:
+            return
+        await self._session.execute(
+            update(MangaSection)
+            .where(
+                MangaSection.id == section_id,
+                MangaSection.manga_id.in_(select(Manga.id).where(Manga.user_id == user_id)),
+            )
+            .values(**fields)
+        )
+
+    async def first_page_paths(self, section_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """First page's `storage_path` per section (by `position`) — batched in one
+        query so listing a manga's sections doesn't fetch pages per-section."""
+        if not section_ids:
+            return {}
+        ranked = (
+            select(
+                MangaPage.section_id,
+                MangaPage.storage_path,
+                func.row_number()
+                .over(partition_by=MangaPage.section_id, order_by=MangaPage.position)
+                .label("rn"),
+            )
+            .where(MangaPage.section_id.in_(section_ids))
+            .subquery()
+        )
+        result = await self._session.execute(
+            select(ranked.c.section_id, ranked.c.storage_path).where(ranked.c.rn == 1)
+        )
+        return {row.section_id: row.storage_path for row in result.all()}
+
     # --- pages --------------------------------------------------------
 
     async def list_pages(self, section_id: uuid.UUID) -> list[MangaPage]:

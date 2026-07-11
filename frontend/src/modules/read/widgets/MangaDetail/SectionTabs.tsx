@@ -7,12 +7,12 @@ interface SectionTabsProps {
 }
 
 const TABS: { value: SectionKind; label: string }[] = [
-  { value: "volume", label: "Volumes" },
   { value: "chapter", label: "Chapters" },
+  { value: "volume", label: "Volumes" },
 ];
 
 /** Volumes | Chapters switch — the two tabs are just a `kind` filter, built on
  *  the shared `Tabs` control. */
 export function SectionTabs({ active, onChange }: SectionTabsProps) {
-  return <Tabs tabs={TABS} active={active} onChange={onChange} layoutId="section-tabs" />;
+  return <Tabs tabs={TABS} active={active} onChange={onChange} />;
 }

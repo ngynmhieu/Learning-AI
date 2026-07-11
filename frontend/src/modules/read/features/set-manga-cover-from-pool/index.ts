@@ -1,0 +1,1 @@
+export { useSetMangaCoverFromPool } from "./useSetMangaCoverFromPool";

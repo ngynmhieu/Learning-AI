@@ -39,7 +39,7 @@ export const router = createBrowserRouter([
           // The read module — displayed as "Lector" (paths use the display name).
           { path: "/lector", element: lazily(<LectorLibraryPage />) },
           { path: "/lector/manga/:mangaId", element: lazily(<MangaDetailPage />) },
-          { path: "/lector/read/:sectionId", element: lazily(<ReaderPage />) },
+          { path: "/lector/manga/:mangaId/read/:sectionId", element: lazily(<ReaderPage />) },
           { path: "/lector/pool", element: lazily(<PoolPage />) },
         ],
       },

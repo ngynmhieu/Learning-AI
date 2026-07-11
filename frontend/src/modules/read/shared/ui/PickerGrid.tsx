@@ -18,6 +18,8 @@ interface PickerGridProps {
   onItemClick: (key: string, index: number, event: React.MouseEvent) => void;
   onSelectAll: () => void;
   onClear: () => void;
+  /** Hides "Select all" — for callers that only ever want one pick (e.g. choosing a cover). */
+  singleSelect?: boolean;
   busy: boolean;
   /** Shown on the confirm button while `busy` (e.g. "Importing…", "Uploading…"). */
   busyLabel: string;
@@ -39,6 +41,7 @@ export function PickerGrid({
   onItemClick,
   onSelectAll,
   onClear,
+  singleSelect = false,
   busy,
   busyLabel,
   confirmLabel,
@@ -56,16 +59,18 @@ export function PickerGrid({
           {visibleItems.length} {itemNoun}
           {visibleItems.length > 1 ? "s" : ""} — click to pick, in reading order.
         </p>
-        <button onClick={onSelectAll} className="text-xs text-[var(--owl-orange-deep)] hover:underline cursor-pointer">
-          Select all
-        </button>
+        {!singleSelect && (
+          <button onClick={onSelectAll} className="text-xs text-[var(--owl-orange-deep)] hover:underline cursor-pointer">
+            Select all
+          </button>
+        )}
         {picked.length > 0 && (
           <button onClick={onClear} className="text-xs text-[var(--owl-brown-muted)] hover:underline cursor-pointer">
             Clear
           </button>
         )}
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-2 max-h-[24rem] overflow-y-auto pr-1">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-2 max-h-[24rem] overflow-y-auto pr-1 py-2">
         <AnimatePresence>
           {visibleItems.map((item, index) => (
             <motion.div
@@ -90,7 +95,7 @@ export function PickerGrid({
         <button
           onClick={onConfirm}
           disabled={busy}
-          className="flex w-fit items-center gap-1.5 rounded-md bg-[var(--owl-brown)] px-3 py-1.5 text-sm text-[var(--owl-cream)] hover:bg-[var(--owl-brown-deep)] transition-colors cursor-pointer disabled:opacity-50"
+          className="flex w-fit items-center gap-1.5 rounded-md bg-[var(--owl-brown)] px-3 py-1.5 text-sm text-[var(--owl-cream)] hover:bg-[var(--owl-brown-deep)] transition-colors cursor-pointer disabled:opacity-50 mt-2"
         >
           {busy && <Loader2 size={14} aria-hidden="true" className="animate-spin" />}
           {busy ? busyLabel : `${confirmLabel} ${picked.length} ${itemNoun}${picked.length > 1 ? "s" : ""}`}

@@ -63,14 +63,18 @@ export function ReadLibraryProvider({ children }: { children: React.ReactNode })
     []
   );
 
+  const applyUpdate = useCallback((manga: Manga) => {
+    setMangas((prev) => prev.map((m) => (m.id === manga.id ? manga : m)));
+  }, []);
+
   const remove = useCallback(async (id: string) => {
     await readApi.deleteManga(id);
     setMangas((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
   const value = useMemo(
-    () => ({ mangas, loading, error, refresh, create, update, remove }),
-    [mangas, loading, error, refresh, create, update, remove]
+    () => ({ mangas, loading, error, refresh, create, update, applyUpdate, remove }),
+    [mangas, loading, error, refresh, create, update, applyUpdate, remove]
   );
 
   return <ReadLibraryContext.Provider value={value}>{children}</ReadLibraryContext.Provider>;

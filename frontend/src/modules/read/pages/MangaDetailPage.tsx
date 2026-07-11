@@ -1,30 +1,23 @@
 import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, Pencil, Check, Upload, Globe, X } from "lucide-react";
-import { LoadingDialog, Tabs } from "@/shared/ui";
-import {
-  sectionLabel,
-  useMangaDetail,
-  useSectionPages,
-  type Section,
-  type SectionKind,
-} from "../entities";
-import { useCreateSection, useDeleteSection, useUploadPages, useImportPages } from "../features";
-import { UploadTray, ScrapePicker } from "../shared";
+import { ArrowLeft, Pencil, Check } from "lucide-react";
+import { LoadingDialog } from "@/shared/ui";
+import { useMangaDetail, type Section, type SectionKind } from "../entities";
+import { useCreateSection, useDeleteSection } from "../features";
 import { SectionTabs, SectionGrid } from "../widgets";
 
-/** /lector/manga/:mangaId — one series: Volumes/Chapters tabs, add sections,
- *  and fill a section with pages (local upload or scrape) via the panel below.
+/** /lector/manga/:mangaId — one series: Volumes/Chapters tabs, create/delete
+ *  sections, and set a section's cover. Adding pages happens on the reader
+ *  itself (its own edit mode) — this page only manages the sections list.
  *  Same view/edit split as the library: view is read-only, edit reveals the
  *  add-section tile and per-card hover actions. */
 export function MangaDetailPage() {
   const { mangaId } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab: SectionKind = searchParams.get("tab") === "chapters" ? "chapter" : "volume";
+  const tab: SectionKind = searchParams.get("tab") === "volumes" ? "volume" : "chapter";
 
   const { detail, notFound, refresh } = useMangaDetail(mangaId);
-  const [activeSection, setActiveSection] = useState<Section | null>(null);
   const [editing, setEditing] = useState(false);
 
   const { createSection, creating } = useCreateSection();
@@ -42,12 +35,12 @@ export function MangaDetailPage() {
   const addSection = async (input: { number: number | null; title: string | null }) => {
     const section = await createSection(detail.id, { kind: tab, ...input });
     await refresh();
-    setActiveSection(section); // fresh section → straight to adding pages
+    // Fresh section has no pages yet — go straight to the reader's edit mode to add some.
+    navigate(`/lector/manga/${detail.id}/read/${section.id}?edit=1`);
   };
 
   const deleteSection = async (section: Section) => {
     await deleteSectionApi(section.id);
-    if (activeSection?.id === section.id) setActiveSection(null);
     await refresh();
   };
 
@@ -86,94 +79,13 @@ export function MangaDetailPage() {
           kind={tab}
           sections={sections}
           editing={editing}
-          onOpen={(section) => navigate(`/lector/read/${section.id}`)}
-          onAddPages={setActiveSection}
+          onOpen={(section) => navigate(`/lector/manga/${detail.id}/read/${section.id}`)}
+          onCoverChanged={refresh}
           onDelete={deleteSection}
           onCreate={addSection}
           creating={creating}
         />
-
-        {activeSection && (
-          <AddPagesPanel
-            key={activeSection.id}
-            mangaId={detail.id}
-            section={activeSection}
-            onClose={() => setActiveSection(null)}
-            onDone={() => navigate(`/lector/read/${activeSection.id}`)}
-          />
-        )}
       </div>
     </div>
-  );
-}
-
-interface AddPagesPanelProps {
-  mangaId: string;
-  section: Section;
-  onClose: () => void;
-  onDone: () => void;
-}
-
-type AddPagesMode = "upload" | "scrape";
-
-const ADD_PAGES_MODE_TABS: { value: AddPagesMode; label: string; icon: typeof Globe }[] = [
-  { value: "upload", label: "Upload", icon: Upload },
-  { value: "scrape", label: "Scrape", icon: Globe },
-];
-
-/** Fill one section with pages — Upload (direct-to-storage) or Scrape (backend
- *  import). New pages append after the section's existing ones. */
-function AddPagesPanel({ mangaId, section, onClose, onDone }: AddPagesPanelProps) {
-  const [mode, setMode] = useState<AddPagesMode>("upload");
-  const { pages } = useSectionPages(section.id);
-  const pageCount = pages?.length ?? null;
-  const { uploadPages, uploading, uploadStatus } = useUploadPages(mangaId, section.id);
-  const { importPages, importing, importStatus } = useImportPages(section.id);
-
-  const ready = pageCount !== null;
-
-  return (
-    <section className="rounded-md border border-[var(--owl-border)] bg-[var(--owl-cream)]/30 p-4 flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <h2 className="flex-1 text-sm font-medium text-[var(--owl-brown-deep)]">
-          Add pages to {sectionLabel(section)}
-          {pageCount !== null && pageCount > 0 && (
-            <span className="ml-2 text-xs font-normal text-[var(--owl-brown-muted)]">
-              ({pageCount} page{pageCount > 1 ? "s" : ""} already — new ones append)
-            </span>
-          )}
-        </h2>
-        <Tabs tabs={ADD_PAGES_MODE_TABS} active={mode} onChange={setMode} layoutId="add-pages-mode" />
-        <button
-          onClick={onClose}
-          aria-label="Close panel"
-          className="p-1 rounded text-[var(--owl-brown-muted)] hover:text-[var(--owl-brown-deep)] cursor-pointer"
-        >
-          <X size={15} />
-        </button>
-      </div>
-
-      {!ready ? (
-        <p className="text-sm text-[var(--owl-brown-muted)]">Loading…</p>
-      ) : mode === "upload" ? (
-        <UploadTray
-          busy={uploading}
-          uploadStatus={uploadStatus}
-          onConfirm={async (items) => {
-            await uploadPages(items, pageCount);
-            onDone();
-          }}
-        />
-      ) : (
-        <ScrapePicker
-          busy={importing}
-          importStatus={importStatus}
-          onImport={async (urls, referer) => {
-            await importPages(urls, referer);
-            onDone();
-          }}
-        />
-      )}
-    </section>
   );
 }

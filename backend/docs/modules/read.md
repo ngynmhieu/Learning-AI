@@ -175,6 +175,33 @@ client off `app.state`.
 
 This module is the **metadata** authority; **Supabase Storage** holds the bytes.
 
+```mermaid
+graph LR
+    Browser["Browser / Frontend<br/>(modules/read)"]
+    Backend["Backend<br/>FastAPI /read/*<br/>(metadata only)"]
+    DB[("Postgres<br/>mangas · manga_sections<br/>manga_pages · library_assets")]
+    Storage[("Supabase Storage<br/>manga bucket")]
+    External(("External site<br/>(scrape source)"))
+
+    Browser -- "metadata CRUD<br/>(title, order, cover_path, ...)" --> Backend
+    Backend -- "reads/writes rows" --> DB
+
+    Browser == "1. upload bytes<br/>(own {user_id}/ prefix, RLS)" ==> Storage
+    Browser -- "2. request signed URL<br/>for a storage_path" --> Storage
+    Storage == "3. image bytes<br/>(pages, covers — via signed URL/CDN)" ==> Browser
+
+    Backend -. "scrape: fetch image" .-> External
+    Backend == "scrape: upload bytes<br/>(service-role — the one exception)" ==> Storage
+    Backend == "delete objects<br/>(service-role, on row delete)" ==> Storage
+```
+
+Thick (`==>`) edges are the ones that actually move image bytes — notice almost all of
+them are Browser ↔ Storage direct, with the backend only stepping into that path for
+scrape-import and cleanup-on-delete (both service-role, both called out in the bullets
+below). The thin edges are metadata-only: step 2 is just "give me a signed URL for this
+path" (a request, no bytes), and the constant thing the backend actually does is the
+`Browser → Backend → Postgres` metadata line at the top.
+
 - **Local upload:** frontend uploads files **directly to Storage** (RLS-gated by owner
   path), then calls `POST /read/sections/{id}/pages` (into a section) or `POST
   /read/library` (into the pool) so this module records the rows. No image bytes pass

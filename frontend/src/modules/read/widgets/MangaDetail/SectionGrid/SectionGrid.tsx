@@ -1,6 +1,6 @@
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
 import type { Section, SectionKind } from "../../../entities";
-import { TileGrid } from "../../../shared";
+import { TileGrid, useSignedUrls } from "../../../shared";
 import { SectionCard } from "./components/SectionCard";
 import { AddSectionCard } from "./components/AddSectionCard";
 
@@ -9,7 +9,7 @@ interface SectionGridProps {
   sections: Section[];
   editing: boolean;
   onOpen: (section: Section) => void;
-  onAddPages: (section: Section) => void;
+  onCoverChanged: () => void;
   onDelete: (section: Section) => void;
   onCreate: (input: { number: number | null; title: string | null }) => Promise<void> | void;
   creating: boolean;
@@ -24,11 +24,13 @@ export function SectionGrid({
   sections,
   editing,
   onOpen,
-  onAddPages,
+  onCoverChanged,
   onDelete,
   onCreate,
   creating,
 }: SectionGridProps) {
+  const coverUrls = useSignedUrls(sections.map((s) => s.coverPath ?? s.firstPagePath));
+
   return (
     <TileGrid
       count={sections.length}
@@ -37,16 +39,20 @@ export function SectionGrid({
       emptyMessage={`No ${kind}s yet.`}
       emptyIcon={<img src={owlMascot} alt="" aria-hidden="true" className="w-16 opacity-70" />}
     >
-      {sections.map((section) => (
-        <SectionCard
-          key={section.id}
-          section={section}
-          editing={editing}
-          onOpen={onOpen}
-          onAddPages={onAddPages}
-          onDelete={onDelete}
-        />
-      ))}
+      {sections.map((section) => {
+        const coverPath = section.coverPath ?? section.firstPagePath;
+        return (
+          <SectionCard
+            key={section.id}
+            section={section}
+            coverUrl={coverPath ? coverUrls[coverPath] : undefined}
+            editing={editing}
+            onOpen={onOpen}
+            onCoverChanged={onCoverChanged}
+            onDelete={onDelete}
+          />
+        );
+      })}
     </TileGrid>
   );
 }

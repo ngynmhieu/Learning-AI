@@ -20,6 +20,8 @@ export interface SectionSummary {
   number: number | null;
   title: string | null;
   coverPath: string | null;
+  /** First page's storage path — the display fallback when `coverPath` is unset. */
+  firstPagePath: string | null;
   createdAt: string;
 }
 
@@ -55,13 +57,6 @@ export interface SectionCreateInput {
   kind: "volume" | "chapter";
   number?: number | null;
   title?: string | null;
-}
-
-export interface PageRecordInput {
-  storagePath: string;
-  position: number;
-  width?: number | null;
-  height?: number | null;
 }
 
 export interface LibraryAssetRecordInput {
@@ -108,6 +103,12 @@ export const readApi = {
       }),
     }),
 
+  setMangaCoverFromLibrary: (mangaId: string, assetId: string) =>
+    request<MangaSummary>(`/read/mangas/${mangaId}/cover/from-library`, {
+      method: "POST",
+      body: JSON.stringify({ asset_id: assetId }),
+    }),
+
   deleteManga: (mangaId: string) =>
     request<void>(`/read/mangas/${mangaId}`, { method: "DELETE" }),
 
@@ -122,24 +123,25 @@ export const readApi = {
       }),
     }),
 
+  updateSection: (sectionId: string, patch: { coverPath?: string | null }) =>
+    request<SectionSummary>(`/read/sections/${sectionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        ...(patch.coverPath !== undefined && { cover_path: patch.coverPath }),
+      }),
+    }),
+
+  setSectionCoverFromLibrary: (sectionId: string, assetId: string) =>
+    request<SectionSummary>(`/read/sections/${sectionId}/cover/from-library`, {
+      method: "POST",
+      body: JSON.stringify({ asset_id: assetId }),
+    }),
+
   deleteSection: (sectionId: string) =>
     request<void>(`/read/sections/${sectionId}`, { method: "DELETE" }),
 
   // --- pages ---
   listPages: (sectionId: string) => request<PageInfo[]>(`/read/sections/${sectionId}/pages`),
-
-  recordPages: (sectionId: string, records: PageRecordInput[]) =>
-    request<PageInfo[]>(`/read/sections/${sectionId}/pages`, {
-      method: "POST",
-      body: JSON.stringify(
-        records.map((r) => ({
-          storage_path: r.storagePath,
-          position: r.position,
-          width: r.width ?? null,
-          height: r.height ?? null,
-        }))
-      ),
-    }),
 
   reorderPages: (sectionId: string, orderedPageIds: string[]) =>
     request<void>(`/read/sections/${sectionId}/pages/order`, {
@@ -152,12 +154,6 @@ export const readApi = {
     request<{ candidates: ScrapeCandidate[] }>("/read/scrape", {
       method: "POST",
       body: JSON.stringify({ url }),
-    }),
-
-  importInto: (sectionId: string, urls: string[], referer?: string) =>
-    request<PageInfo[]>(`/read/sections/${sectionId}/import`, {
-      method: "POST",
-      body: JSON.stringify({ urls, referer: referer ?? null }),
     }),
 
   // --- library pool ---

@@ -1,1 +1,0 @@
-export { useUploadCover } from "./useUploadCover";

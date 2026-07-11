@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from .dependencies import get_read_service, get_scrape_service
 from .schemas import (
+    CoverFromLibraryRequest,
     ImportRequest,
     LibraryAssetInfo,
     LibraryAssetRecord,
@@ -21,6 +22,7 @@ from .schemas import (
     ScrapeResult,
     SectionCreate,
     SectionSummary,
+    SectionUpdate,
 )
 from .services import ReadService, ScrapeService
 
@@ -57,6 +59,16 @@ async def update_manga(
     return manga
 
 
+@router.post("/mangas/{manga_id}/cover/from-library", response_model=MangaSummary)
+async def set_manga_cover_from_library(
+    manga_id: uuid.UUID, body: CoverFromLibraryRequest, service: ReadService = Depends(get_read_service)
+):
+    manga = await service.set_manga_cover_from_library(manga_id, body)
+    if manga is None:
+        raise HTTPException(status_code=404, detail="Manga not found")
+    return manga
+
+
 @router.delete("/mangas/{manga_id}", status_code=204)
 async def delete_manga(manga_id: uuid.UUID, service: ReadService = Depends(get_read_service)):
     if not await service.delete_manga(manga_id):
@@ -72,6 +84,26 @@ async def create_section(
     section = await service.create_section(manga_id, body)
     if section is None:
         raise HTTPException(status_code=404, detail="Manga not found")
+    return section
+
+
+@router.patch("/sections/{section_id}", response_model=SectionSummary)
+async def update_section(
+    section_id: uuid.UUID, body: SectionUpdate, service: ReadService = Depends(get_read_service)
+):
+    section = await service.update_section(section_id, body)
+    if section is None:
+        raise HTTPException(status_code=404, detail="Section not found")
+    return section
+
+
+@router.post("/sections/{section_id}/cover/from-library", response_model=SectionSummary)
+async def set_section_cover_from_library(
+    section_id: uuid.UUID, body: CoverFromLibraryRequest, service: ReadService = Depends(get_read_service)
+):
+    section = await service.set_section_cover_from_library(section_id, body)
+    if section is None:
+        raise HTTPException(status_code=404, detail="Section not found")
     return section
 
 
