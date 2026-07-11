@@ -1,1 +1,0 @@
-export { UploadTray } from "./UploadTray";

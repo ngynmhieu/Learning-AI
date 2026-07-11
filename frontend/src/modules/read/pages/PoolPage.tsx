@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Upload, Globe, Trash2, Pencil, Check } from "lucide-react";
 import { LoadingDialog, Tabs } from "@/shared/ui";
-import { useSignedUrls, useClickSelect, ImageLightbox } from "../shared";
+import { useSignedUrls, useClickSelect, ImageLightbox, UploadTray, ScrapePicker } from "../shared";
 import { usePoolAssets } from "../entities";
 import { useCollectToPool, useDiscardFromPool } from "../features";
-import { PoolGrid, UploadTray, ScrapePicker } from "../widgets";
+import { PoolGrid } from "../widgets";
 
 type CollectMode = "scrape" | "upload";
 

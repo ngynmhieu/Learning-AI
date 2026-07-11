@@ -1,4 +1,4 @@
-import type { Page } from "../../../entities";
+import type { Page } from "../../../../entities";
 
 interface PageViewProps {
   page: Page;

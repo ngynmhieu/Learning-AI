@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus } from "lucide-react";
-import { PickerGrid, useClickSelect, type ImportStatus } from "../../shared";
+import { useClickSelect } from "../useClickSelect";
+import type { ImportStatus } from "../importStatus";
+import { PickerGrid } from "./PickerGrid";
 
 interface StagedFile {
   id: string;

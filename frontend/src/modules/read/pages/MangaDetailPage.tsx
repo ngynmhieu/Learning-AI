@@ -10,7 +10,8 @@ import {
   type SectionKind,
 } from "../entities";
 import { useCreateSection, useDeleteSection, useUploadPages, useImportPages } from "../features";
-import { SectionTabs, SectionGrid, UploadTray, ScrapePicker } from "../widgets";
+import { UploadTray, ScrapePicker } from "../shared";
+import { SectionTabs, SectionGrid } from "../widgets";
 
 /** /lector/manga/:mangaId — one series: Volumes/Chapters tabs, add sections,
  *  and fill a section with pages (local upload or scrape) via the panel below.

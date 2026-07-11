@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Globe } from "lucide-react";
 import { useScrapePages } from "../../features/scrape-pages";
-import { PickerGrid, useClickSelect, type ImportStatus } from "../../shared";
+import { useClickSelect } from "../useClickSelect";
+import type { ImportStatus } from "../importStatus";
+import { PickerGrid } from "./PickerGrid";
 
 interface ScrapePickerProps {
   /** Called with the chosen URLs in pick order, plus the scraped page URL

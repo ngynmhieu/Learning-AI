@@ -19,5 +19,7 @@ export { AddTile } from "./ui/AddTile";
 export { TileGrid } from "./ui/TileGrid";
 export { TileActions } from "./ui/TileActions";
 export { ImageLightbox } from "./ui/ImageLightbox";
+export { ScrapePicker } from "./ui/ScrapePicker";
+export { UploadTray } from "./ui/UploadTray";
 export { useClickSelect } from "./useClickSelect";
 export type { ImportStatus } from "./importStatus";
