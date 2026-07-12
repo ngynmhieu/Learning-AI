@@ -87,10 +87,10 @@ markup. Don't push the check down into a child widget that only replaces its
 own slot, leaving the header/chrome visible around a lone loading card.
 
 ```tsx
-// correct — LectorLibraryPage reads the same state MangaGrid would have,
+// correct — MangaCollectionPage reads the same state MangaGrid would have,
 // and gates before its header renders at all
-export function LectorLibraryPage() {
-  const { mangas, loading, error } = useReadLibrary();
+export function MangaCollectionPage() {
+  const { mangas, loading, error } = useMangaCollection();
 
   if (loading && mangas.length === 0) {
     return <LoadingDialog fullScreen={false} message="Fetching your library…" />;
@@ -106,7 +106,7 @@ export function LectorLibraryPage() {
 }
 
 // wrong — header/toolbar always renders; only MangaGrid's own slot loads
-export function LectorLibraryPage() {
+export function MangaCollectionPage() {
   return (
     <div>
       <header>...</header>
@@ -117,7 +117,7 @@ export function LectorLibraryPage() {
 ```
 
 If a widget used to own that check itself (e.g. `MangaGrid` reading
-`useReadLibrary()`'s `loading`/`error`), remove it once the parent page gates
+`useMangaCollection()`'s `loading`/`error`), remove it once the parent page gates
 on the same state — the widget only mounts after the page has already decided
 the data is ready, so a duplicate check there is unreachable dead code.
 

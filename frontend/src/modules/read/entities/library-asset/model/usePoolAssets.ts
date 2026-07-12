@@ -48,7 +48,7 @@ export function usePoolAssets() {
    *  repeatedly with its always-correctly-ordered "resolved so far" set and the
    *  count it last showed, so each call reveals newly-finished items immediately
    *  (in the right order) without duplicating what's already visible — see
-   *  `useCollectToPool`. */
+   *  `useCollectToLibrary`. */
   const replaceTail = useCallback((count: number, next: LibraryAsset[]) => {
     setAssets((prev) => [...prev.slice(0, prev.length - count), ...next]);
   }, []);

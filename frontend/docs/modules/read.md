@@ -31,10 +31,10 @@ frontend/src/
     read/
       index.ts                       ← public API (pages + provider for the router)
       pages/
-        LectorLibraryPage.tsx        ← /lector — grid of all mangas
-        MangaDetailPage.tsx          ← /lector/manga/:mangaId — Volumes/Chapters tabs + sections
-        ReaderPage.tsx               ← /lector/read/:sectionId — the reading view
-        PoolPage.tsx                 ← /lector/pool — the unassigned image pool
+        MangaCollectionPage.tsx      ← /lector — grid of all mangas
+        MangaSectionsPage.tsx        ← /lector/manga/:mangaId — Volumes/Chapters tabs + sections
+        MangaReaderPage.tsx          ← /lector/manga/:mangaId/read/:sectionId — the reading view
+        LibraryPage.tsx              ← /lector/pool — the unassigned image pool
       widgets/
         MangaGrid/                   ← library grid (+ MangaCard)
         SectionTabs.tsx              ← Volumes | Chapters switch
@@ -43,17 +43,23 @@ frontend/src/
         ScrapePicker/                ← paste URL → pick + order scraped images (+ components)
         PoolGrid/                    ← the pool: select + order assets, then organize/discard (+ components)
         Reader/                      ← virtualized page viewer + controls (+ components)
-      features/
-        create-manga/                ← create a series
-        create-section/              ← add a volume/chapter
-        upload-pages/                ← local files → Storage (direct) → record rows
-        scrape-pages/                ← URL → POST /read/scrape → candidates
-        import-pages/                ← chosen candidates → POST /read/sections/:id/import (direct into a section)
-        collect-to-pool/             ← chosen candidates → POST /read/library/import; local files → Storage → POST /read/library
-        organize-from-pool/          ← selected pool assets (ordered) → POST /read/sections/:id/pages/from-library
-        reorder-pages/               ← drag-reorder → PATCH …/pages/order
+      features/                      ← grouped by the page each fulfills an action for
+        manga-collection/
+          create-manga/              ← create a series
+          set-manga-cover-from-library/  ← pick a library asset as a manga's cover
+        manga-sections/
+          create-section/            ← add a volume/chapter
+          delete-section/            ← remove a volume/chapter
+          set-section-cover-from-library/  ← pick a library asset as a section's cover
+        manga-reader/
+          organize-from-library/     ← selected library assets (ordered) → POST /read/sections/:id/pages/from-library
+          reorder-pages/             ← drag-reorder → PATCH …/pages/order
+        library/
+          collect-to-library/        ← scraped/uploaded images → POST /read/library/import or /read/library
+          discard-from-library/      ← remove a library asset (row + Storage file)
+          scrape-pages/              ← URL → POST /read/scrape → candidates
       entities/
-        manga/                       ← Manga types + library list provider
+        manga/                       ← Manga types + collection provider
         section/                     ← Section types
         page/                        ← Page types + reader runtime/progress
         library-asset/               ← LibraryAsset types + pool list provider
@@ -72,13 +78,13 @@ Three routes under the existing `ProtectedRoute → AppLayout` children. The pat
 the **display** name `/lector/*` (user-facing), while the code lives in `modules/read`:
 
 ```
-/lector                       → LectorLibraryPage
-/lector/manga/:mangaId        → MangaDetailPage   (tabs read ?tab=volumes|chapters)
-/lector/read/:sectionId       → ReaderPage
-/lector/pool                  → PoolPage          (the unassigned image pool)
+/lector                              → MangaCollectionPage
+/lector/manga/:mangaId               → MangaSectionsPage   (tabs read ?tab=volumes|chapters)
+/lector/manga/:mangaId/read/:sectionId → MangaReaderPage
+/lector/pool                         → LibraryPage          (the unassigned image pool)
 ```
 
-A `ReadLibraryProvider` (the library list, mirroring `ConversationsProvider`) wraps
+A `MangaCollectionProvider` (the manga collection, mirroring `ConversationsProvider`) wraps
 these so the grid and detail page share one source of truth. One new sidebar nav item,
 labelled **"Lector"**, points at `/lector` (added in `app/layouts/Sidebar/navItems.ts`).
 
@@ -111,19 +117,19 @@ labelled **"Lector"**, points at `/lector` (added in `app/layouts/Sidebar/navIte
 
 ## The image pool (staging)
 
-`/lector/pool` (`PoolPage` + `PoolGrid`) is a personal, manga-less collection you fill
+`/lector/pool` (`LibraryPage` + `PoolGrid`) is a personal, manga-less collection you fill
 over time, then drain into series when you're ready. It exists because scraping and
 uploading often happen *before* you've decided the target volume/chapter — you gather
 first, organize later.
 
-**Filling the pool** (`collect-to-pool`):
+**Filling the library** (`collect-to-library`):
 - *Scrape → pool:* same `ScrapePicker` candidate flow, but the chosen URLs go to
   `POST /read/library/import` (backend downloads → `{userId}/_pool/…` → records
   `library_assets`). You can repeat this across many sessions; assets accumulate.
 - *Upload → pool:* same `UploadTray`, uploading straight to `{userId}/_pool/…` via
   `shared/lib/storage.ts`, then `POST /read/library` records the rows.
 
-**Draining the pool** (`organize-from-pool`):
+**Draining the library** (`organize-from-library`):
 1. `PoolGrid` shows the pool (assets resolved to previews via batch signed URLs, like
    the reader) and lets you **select + drag-order** the ones for a section.
 2. Pick a target manga + volume/chapter (or create one), then
@@ -138,7 +144,7 @@ removes both the row and its Storage file.
 
 ## Reading — fast & modern
 
-`ReaderPage` loads ordered metadata via `GET /read/sections/{id}/pages`, then
+`MangaReaderPage` loads ordered metadata via `GET /read/sections/{id}/pages`, then
 `useSignedPages` **batch-signs** all of that section's `storage_path`s in one
 `createSignedUrls` call (private bucket → temporary CDN links, ~1h TTL). The `Reader`
 widget then:

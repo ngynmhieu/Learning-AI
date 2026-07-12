@@ -3,10 +3,10 @@ import { Globe, Upload, X } from "lucide-react";
 import { Modal, Tabs, Tooltip } from "@/shared/ui";
 import { usePoolAssets, type LibraryAsset, type Page } from "../../entities";
 import {
-  useOrganizeFromPool,
-  useCollectToPool,
-  useSetMangaCoverFromPool,
-  useSetSectionCoverFromPool,
+  useOrganizeFromLibrary,
+  useCollectToLibrary,
+  useSetMangaCoverFromLibrary,
+  useSetSectionCoverFromLibrary,
 } from "../../features";
 import { useSignedUrls } from "../useSignedUrls";
 import { useClickSelect } from "../useClickSelect";
@@ -35,7 +35,7 @@ const COLLECT_MODE_TABS: { value: CollectMode; label: string; icon: typeof Globe
 ];
 
 /** The single way images reach a section or a cover: collect into the pool
- *  (scrape or upload — identical to PoolPage's "Collect images"), then pick
+ *  (scrape or upload — identical to LibraryPage's "Collect images"), then pick
  *  from that same grid. Merging the collect step into this "window" means
  *  pages and covers always pass through the pool, rather than each having its
  *  own separate straight-to-target upload/scrape path to keep in sync. */
@@ -44,7 +44,7 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
   const { assets, loading, replaceTail, removeAssets } = usePoolAssets();
   const urls = useSignedUrls(assets.map((a) => a.storagePath));
   const { picked, setPicked, onItemClick: multiItemClick } = useClickSelect(assets.map((a) => a.id));
-  const { importUrlsToPool, uploadFilesToPool, collecting, importStatus } = useCollectToPool();
+  const { importUrlsToLibrary, uploadFilesToLibrary, collecting, importStatus } = useCollectToLibrary();
   // How much of the current collect batch is already shown in the pool grid —
   // only one collect runs at a time (`collecting` disables the other picker).
   const shownBatchCountRef = useRef(0);
@@ -52,13 +52,13 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
   // Rules of hooks: all three targets' hooks are called every render, each
   // holding a harmless id when its target kind isn't the active one — only
   // the one matching `target.kind` in `confirm` below ever actually fires.
-  const { organize, organizing, organizeStatus } = useOrganizeFromPool(
+  const { organize, organizing, organizeStatus } = useOrganizeFromLibrary(
     target.kind === "section-pages" ? target.sectionId : ""
   );
-  const { setCoverFromPool: setMangaCover, setting: settingMangaCover } = useSetMangaCoverFromPool(
+  const { setCoverFromLibrary: setMangaCover, setting: settingMangaCover } = useSetMangaCoverFromLibrary(
     target.kind === "manga-cover" ? target.mangaId : ""
   );
-  const { setCoverFromPool: setSectionCover, setting: settingSectionCover } = useSetSectionCoverFromPool(
+  const { setCoverFromLibrary: setSectionCover, setting: settingSectionCover } = useSetSectionCoverFromLibrary(
     target.kind === "section-cover" ? target.sectionId : ""
   );
 
@@ -121,7 +121,7 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
             importLabel="Collect"
             onImport={async (scrapedUrls, referer) => {
               shownBatchCountRef.current = 0;
-              await importUrlsToPool(scrapedUrls, referer, (resolvedSoFar) => {
+              await importUrlsToLibrary(scrapedUrls, referer, (resolvedSoFar) => {
                 replaceTail(shownBatchCountRef.current, resolvedSoFar);
                 shownBatchCountRef.current = resolvedSoFar.length;
               });
@@ -134,7 +134,7 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
             confirmLabel="Collect"
             onConfirm={async (items) => {
               shownBatchCountRef.current = 0;
-              await uploadFilesToPool(items, (resolvedSoFar) => {
+              await uploadFilesToLibrary(items, (resolvedSoFar) => {
                 replaceTail(shownBatchCountRef.current, resolvedSoFar);
                 shownBatchCountRef.current = resolvedSoFar.length;
               });

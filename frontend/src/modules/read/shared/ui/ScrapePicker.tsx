@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Globe } from "lucide-react";
-import { useScrapePages } from "../../features/scrape-pages";
+import { useScrapePages } from "../../features/library/scrape-pages";
 import { useClickSelect } from "../useClickSelect";
 import type { ImportStatus } from "../importStatus";
 import { PickerGrid } from "./PickerGrid";

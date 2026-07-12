@@ -1,5 +1,5 @@
-export { MangaGrid } from "./LectorLibrary/MangaGrid";
-export { SectionTabs } from "./MangaDetail/SectionTabs";
-export { SectionGrid } from "./MangaDetail/SectionGrid";
-export { Reader } from "./MangaDetail/Reader";
-export { PoolGrid } from "./Pool/PoolGrid";
+export { MangaGrid } from "./MangaCollection/MangaGrid";
+export { SectionTabs } from "./MangaSections/SectionTabs";
+export { SectionGrid } from "./MangaSections/SectionGrid";
+export { Reader } from "./MangaReader";
+export { PoolGrid } from "./Library/PoolGrid";

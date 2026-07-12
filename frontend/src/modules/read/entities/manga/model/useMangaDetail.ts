@@ -4,8 +4,8 @@ import type { MangaDetail } from "../manga.types";
 
 /** One manga's detail (title/description + its sections) — the page's initial
  *  fetch, plus a `refresh` the caller invokes after create/delete-section
- *  actions change the set. Mirrors `useReadLibrary`'s shape at the single-item
- *  level instead of the list level. */
+ *  actions change the set. Mirrors `useMangaCollection`'s shape at the single-item
+ *  level instead of the collection level. */
 export function useMangaDetail(mangaId: string | undefined) {
   const [detail, setDetail] = useState<MangaDetail | null>(null);
   const [notFound, setNotFound] = useState(false);

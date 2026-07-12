@@ -1,5 +1,5 @@
 export type { Manga, MangaDetail } from "./manga";
-export { ReadLibraryProvider, useReadLibrary, useMangaDetail } from "./manga";
+export { MangaCollectionProvider, useMangaCollection, useMangaDetail } from "./manga";
 export type { Section, SectionKind } from "./section";
 export { sectionLabel } from "./section";
 export type { Page } from "./page";

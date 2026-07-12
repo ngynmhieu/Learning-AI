@@ -1,2 +1,2 @@
-export { LectorLibraryPage, MangaDetailPage, ReaderPage, PoolPage } from "./pages";
-export { ReadLibraryProvider } from "./entities";
+export { MangaCollectionPage, MangaSectionsPage, MangaReaderPage, LibraryPage } from "./pages";
+export { MangaCollectionProvider } from "./entities";

@@ -6,18 +6,18 @@ export const ChatPage = lazy(() =>
   import("@/modules/chat").then((m) => ({ default: m.ChatPage }))
 );
 
-export const LectorLibraryPage = lazy(() =>
-  import("@/modules/read").then((m) => ({ default: m.LectorLibraryPage }))
+export const MangaCollectionPage = lazy(() =>
+  import("@/modules/read").then((m) => ({ default: m.MangaCollectionPage }))
 );
 
-export const MangaDetailPage = lazy(() =>
-  import("@/modules/read").then((m) => ({ default: m.MangaDetailPage }))
+export const MangaSectionsPage = lazy(() =>
+  import("@/modules/read").then((m) => ({ default: m.MangaSectionsPage }))
 );
 
-export const ReaderPage = lazy(() =>
-  import("@/modules/read").then((m) => ({ default: m.ReaderPage }))
+export const MangaReaderPage = lazy(() =>
+  import("@/modules/read").then((m) => ({ default: m.MangaReaderPage }))
 );
 
-export const PoolPage = lazy(() =>
-  import("@/modules/read").then((m) => ({ default: m.PoolPage }))
+export const LibraryPage = lazy(() =>
+  import("@/modules/read").then((m) => ({ default: m.LibraryPage }))
 );
