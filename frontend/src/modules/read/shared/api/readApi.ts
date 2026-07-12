@@ -1,5 +1,5 @@
 import camelcaseKeys from "camelcase-keys";
-import { fetchWithToken } from "@/shared/lib";
+import { fetchWithToken, streamNdjson } from "@/shared/lib";
 
 /** Backend shapes for the /read endpoints, camelCased on arrival (metadata only —
  *  image bytes go through shared/lib/storage.ts, never these callers). */
@@ -42,6 +42,7 @@ export interface LibraryAssetInfo {
   id: string;
   storagePath: string;
   sourceUrl: string | null;
+  position: number;
   width: number | null;
   height: number | null;
   createdAt: string;
@@ -66,6 +67,13 @@ export interface LibraryAssetRecordInput {
   height?: number | null;
 }
 
+/** One NDJSON line from `/read/library` or `/read/library/import` — `index` is
+ *  the item's position in the *request* array, not arrival order (items
+ *  complete concurrently); callers must key off `index`, never line order. */
+export type LibraryStreamItem =
+  | { index: number; ok: true; asset: LibraryAssetInfo }
+  | { index: number; ok: false; error: string };
+
 /** One place for the fetch → error → camelCase pipeline all callers share. */
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetchWithToken(path, {
@@ -79,6 +87,18 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 204) return undefined as T;
   const raw = await res.json();
   return camelcaseKeys(raw, { deep: true }) as T;
+}
+
+/** Same camelCase pipeline as `request`, for endpoints that stream NDJSON lines
+ *  instead of returning one JSON body. */
+async function* requestStream<T>(path: string, init: RequestInit = {}): AsyncGenerator<T> {
+  const stream = streamNdjson<Record<string, unknown>>(path, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...init.headers },
+  });
+  for await (const raw of stream) {
+    yield camelcaseKeys(raw, { deep: true }) as T;
+  }
 }
 
 export const readApi = {
@@ -103,7 +123,7 @@ export const readApi = {
       }),
     }),
 
-  setMangaCoverFromLibrary: (mangaId: string, assetId: string) =>
+  setMangaCover: (mangaId: string, assetId: string) =>
     request<MangaSummary>(`/read/mangas/${mangaId}/cover/from-library`, {
       method: "POST",
       body: JSON.stringify({ asset_id: assetId }),
@@ -131,7 +151,7 @@ export const readApi = {
       }),
     }),
 
-  setSectionCoverFromLibrary: (sectionId: string, assetId: string) =>
+  setSectionCover: (sectionId: string, assetId: string) =>
     request<SectionSummary>(`/read/sections/${sectionId}/cover/from-library`, {
       method: "POST",
       body: JSON.stringify({ asset_id: assetId }),
@@ -160,7 +180,7 @@ export const readApi = {
   listLibrary: () => request<LibraryAssetInfo[]>("/read/library"),
 
   recordLibraryAssets: (records: LibraryAssetRecordInput[]) =>
-    request<LibraryAssetInfo[]>("/read/library", {
+    requestStream<LibraryStreamItem>("/read/library", {
       method: "POST",
       body: JSON.stringify(
         records.map((r) => ({
@@ -173,12 +193,12 @@ export const readApi = {
     }),
 
   importToLibrary: (urls: string[], referer?: string) =>
-    request<LibraryAssetInfo[]>("/read/library/import", {
+    requestStream<LibraryStreamItem>("/read/library/import", {
       method: "POST",
       body: JSON.stringify({ urls, referer: referer ?? null }),
     }),
 
-  organizeFromLibrary: (sectionId: string, assetIds: string[]) =>
+  insertFromLibrary: (sectionId: string, assetIds: string[]) =>
     request<PageInfo[]>(`/read/sections/${sectionId}/pages/from-library`, {
       method: "POST",
       body: JSON.stringify({ asset_ids: assetIds }),

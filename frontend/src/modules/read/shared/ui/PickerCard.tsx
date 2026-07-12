@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ImageOff, Check, Loader2 } from "lucide-react";
+import { ImageOff, Check, Loader2, AlertTriangle } from "lucide-react";
 import type { ImportStatus } from "../importStatus";
 
 interface PickerCardProps {
@@ -54,6 +54,11 @@ export function PickerCard({ previewUrl, label, order, status, onToggle }: Picke
       {status === "importing" && (
         <span className="absolute inset-0 flex items-center justify-center bg-black/40">
           <Loader2 size={20} aria-hidden="true" className="animate-spin text-white" />
+        </span>
+      )}
+      {status === "error" && (
+        <span className="absolute inset-0 flex items-center justify-center bg-[var(--owl-danger)]/60">
+          <AlertTriangle size={20} aria-hidden="true" className="text-white" />
         </span>
       )}
     </button>

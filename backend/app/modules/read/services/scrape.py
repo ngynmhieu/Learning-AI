@@ -6,6 +6,7 @@ import asyncio
 import logging
 import mimetypes
 import uuid
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,7 +16,8 @@ from backend.app.modules.auth.schemas import CurrentUser
 from backend.app.shared.storage import StorageClient
 from .. import scraper
 from ..repository import ReadRepository
-from ..schemas import LibraryAssetInfo, PageInfo, ScrapeCandidate, ScrapeResult
+from ..schemas import PageInfo, ScrapeCandidate, ScrapeResult
+from .library_stream import stream_collect
 
 logger = logging.getLogger(__name__)
 
@@ -66,25 +68,27 @@ class ScrapeService:
         await self._repo.commit()
         return [PageInfo.model_validate(page) for page in pages]
 
-    async def import_to_library(
+    async def stream_import_to_library(
         self, urls: list[str], referer: str | None = None
-    ) -> list[LibraryAssetInfo]:
+    ) -> AsyncGenerator[bytes, None]:
         """Same download as `import_into`, but into the pool: `{user_id}/_pool/...`,
-        with no section and no ordering (the pool is unordered)."""
-        downloads = await self._download_all(urls, referer)
+        streamed — each URL's image is reported the moment it's downloaded and
+        uploaded, not batched to the end (see `library_stream.stream_collect`).
+        One shared client for the whole batch, unlike `_download_all`, since this
+        stays open for the generator's full lifetime rather than one bounded call.
+        """
+        async with httpx.AsyncClient(timeout=scraper.REQUEST_TIMEOUT) as client:
 
-        rows = []
-        for url, download in zip(urls, downloads):
-            if download is None:
-                continue
-            content, content_type = download
-            path = f"{self._user_id}/_pool/{uuid.uuid4()}{_extension(url, content_type)}"
-            await self._storage.upload(path, content, content_type)
-            rows.append({"storage_path": path, "source_url": url})
+            async def _prepare(url: str) -> dict:
+                content, content_type = await scraper.download_image(client, url, referer=referer)
+                path = f"{self._user_id}/_pool/{uuid.uuid4()}{_extension(url, content_type)}"
+                await self._storage.upload(path, content, content_type)
+                return {"storage_path": path, "width": None, "height": None}
 
-        assets = await self._repo.insert_library_assets(self._user_id, rows)
-        await self._repo.commit()
-        return [LibraryAssetInfo.model_validate(asset) for asset in assets]
+            async for line in stream_collect(
+                self._repo, self._user_id, urls, DOWNLOAD_CONCURRENCY, lambda url: url, _prepare
+            ):
+                yield line
 
     async def _download_all(self, urls: list[str], referer: str | None) -> list[Download | None]:
         """Download every URL concurrently (bounded), preserving order; a failed

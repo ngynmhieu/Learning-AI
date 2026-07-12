@@ -15,7 +15,7 @@ export interface MangaCollectionContextValue {
     patch: { title?: string; description?: string | null; coverPath?: string | null }
   ) => Promise<void>;
   /** Merge an already-fetched `Manga` into local state — for callers that hit a
-   *  different endpoint than `updateManga` (e.g. `useSetMangaCoverFromLibrary`, which
+   *  different endpoint than `updateManga` (e.g. `useSetMangaCover`, which
    *  calls the cover/from-library route) but still want the same instant local
    *  reflection `update` gives, without firing a second, redundant PATCH. */
   applyUpdate: (manga: Manga) => void;

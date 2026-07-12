@@ -6,6 +6,7 @@ manga/section deletes and pool discards, the corresponding objects are removed f
 the `manga` bucket via `shared/storage/` (the DB cascade drops rows only, not files).
 """
 import uuid
+from collections.abc import AsyncGenerator
 
 from fastapi import HTTPException
 
@@ -26,6 +27,7 @@ from ..schemas import (
     SectionSummary,
     SectionUpdate,
 )
+from .library_stream import stream_collect
 
 
 class ReadService:
@@ -188,16 +190,24 @@ class ReadService:
         assets = await self._repo.list_library(self._user_id)
         return [LibraryAssetInfo.model_validate(asset) for asset in assets]
 
-    async def record_library_assets(
+    async def stream_record_library_assets(
         self, records: list[LibraryAssetRecord]
-    ) -> list[LibraryAssetInfo]:
-        """Persist pool rows for files the frontend already uploaded to `_pool/`."""
-        self._require_own_prefix((record.storage_path for record in records), pool=True)
-        assets = await self._repo.insert_library_assets(
-            self._user_id, [record.model_dump() for record in records]
-        )
-        await self._repo.commit()
-        return [LibraryAssetInfo.model_validate(asset) for asset in assets]
+    ) -> AsyncGenerator[bytes, None]:
+        """Persist pool rows for files the frontend already uploaded to `_pool/`,
+        streamed — each record is reported the instant it's validated + recorded.
+        There's no I/O left to bound (bytes are already in Storage), so every
+        record validates/inserts concurrently. A record outside the caller's own
+        prefix fails only that one item, not its siblings (a deliberate change
+        from the previous whole-batch upfront check).
+        """
+        async def _prepare(record: LibraryAssetRecord) -> dict:
+            self._require_own_prefix([record.storage_path], pool=True)
+            return {"storage_path": record.storage_path, "width": record.width, "height": record.height}
+
+        async for line in stream_collect(
+            self._repo, self._user_id, records, len(records), lambda r: r.source_url, _prepare
+        ):
+            yield line
 
     async def organize_from_library(
         self, section_id: uuid.UUID, asset_ids: list[uuid.UUID]

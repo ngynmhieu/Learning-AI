@@ -8,7 +8,7 @@ ownership-checked lookup — they don't re-check, matching `ConversationReposito
 """
 import uuid
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import LibraryAsset, Manga, MangaPage, MangaSection
@@ -234,32 +234,64 @@ class ReadRepository:
     # --- library pool --------------------------------------------------------
 
     async def list_library(self, user_id: uuid.UUID) -> list[LibraryAsset]:
-        """Oldest first — the pool reads top-to-bottom as a collection queue,
-        with freshly collected images landing at the bottom."""
+        """In collect order — the pool reads top-to-bottom as a collection queue,
+        with freshly collected images landing at the bottom. Excludes reserved
+        slots still awaiting their download/upload (see `reserve_library_asset_slots`)
+        — an in-flight streaming collect shouldn't show a broken card if the pool
+        is viewed from another tab mid-batch."""
         result = await self._session.execute(
             select(LibraryAsset)
-            .where(LibraryAsset.user_id == user_id)
-            .order_by(LibraryAsset.created_at.asc())
+            .where(LibraryAsset.user_id == user_id, LibraryAsset.storage_path.is_not(None))
+            .order_by(LibraryAsset.position.asc())
         )
         return list(result.scalars().all())
 
-    async def insert_library_assets(
-        self, user_id: uuid.UUID, rows: list[dict]
-    ) -> list[LibraryAsset]:
-        """`rows` = [{storage_path, source_url, width, height}, ...]."""
+    async def count_library_assets(self, user_id: uuid.UUID) -> int:
+        """Counts reserved-but-unfilled slots too (deliberately no `storage_path`
+        filter here) — that's what makes `reserve_library_asset_slots` safe
+        against a second concurrent batch reading a stale count."""
+        result = await self._session.execute(
+            select(func.count()).select_from(LibraryAsset).where(LibraryAsset.user_id == user_id)
+        )
+        return result.scalar_one()
+
+    async def reserve_library_asset_slots(
+        self, user_id: uuid.UUID, source_urls: list[str | None]
+    ) -> list[uuid.UUID]:
+        """Insert one placeholder row per item (`storage_path=NULL`, `position`
+        reserved, `source_url` set where already known) — real rows, committed
+        immediately, before any download/upload starts. Returns their ids in the
+        same order as `source_urls`, for the caller to fill in later via
+        `fill_library_asset`.
+
+        Takes a user-scoped advisory lock (released automatically at this
+        method's commit) before reading the current count: two batches for the
+        same user landing at once (e.g. a scrape import and an upload import
+        both starting around the same time) would otherwise both read the same
+        count and collide on `position`. The lock is held only for this fast
+        insert, never across the slow download/upload phase that follows.
+        """
+        await self._session.execute(
+            text("select pg_advisory_xact_lock(hashtext(:user_id)::bigint)"), {"user_id": str(user_id)}
+        )
+        start_position = await self.count_library_assets(user_id)
         assets = [
-            LibraryAsset(
-                user_id=user_id,
-                storage_path=row["storage_path"],
-                source_url=row.get("source_url"),
-                width=row.get("width"),
-                height=row.get("height"),
-            )
-            for row in rows
+            LibraryAsset(user_id=user_id, source_url=source_url, position=start_position + index)
+            for index, source_url in enumerate(source_urls)
         ]
         self._session.add_all(assets)
         await self._session.flush()
-        return assets
+        await self._session.commit()  # release the lock now, before any slow I/O
+        return [asset.id for asset in assets]
+
+    async def fill_library_asset(self, asset_id: uuid.UUID, fields: dict) -> LibraryAsset:
+        """`fields` = {storage_path, width, height} — completes a reserved slot
+        once its download/upload has finished."""
+        await self._session.execute(
+            update(LibraryAsset).where(LibraryAsset.id == asset_id).values(**fields)
+        )
+        result = await self._session.execute(select(LibraryAsset).where(LibraryAsset.id == asset_id))
+        return result.scalar_one()
 
     async def get_library_assets(
         self, asset_ids: list[uuid.UUID], user_id: uuid.UUID

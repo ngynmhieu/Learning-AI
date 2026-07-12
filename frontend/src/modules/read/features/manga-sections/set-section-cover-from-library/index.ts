@@ -1,1 +1,0 @@
-export { useSetSectionCoverFromLibrary } from "./useSetSectionCoverFromLibrary";

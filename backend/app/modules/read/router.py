@@ -2,6 +2,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from .dependencies import get_read_service, get_scrape_service
 from .schemas import (
@@ -177,18 +178,26 @@ async def list_library(service: ReadService = Depends(get_read_service)):
     return await service.list_library()
 
 
-@router.post("/library", response_model=list[LibraryAssetInfo])
+@router.post("/library")
 async def record_library_assets(
     body: list[LibraryAssetRecord], service: ReadService = Depends(get_read_service)
 ):
-    return await service.record_library_assets(body)
+    """Streams one NDJSON `LibraryStreamItem` line per record, the moment each
+    one is validated + recorded (see `ReadService.stream_record_library_assets`)."""
+    return StreamingResponse(
+        service.stream_record_library_assets(body), media_type="application/x-ndjson"
+    )
 
 
-@router.post("/library/import", response_model=list[LibraryAssetInfo])
+@router.post("/library/import")
 async def import_to_library(
     body: LibraryImportRequest, service: ScrapeService = Depends(get_scrape_service)
 ):
-    return await service.import_to_library(body.urls, body.referer)
+    """Streams one NDJSON `LibraryStreamItem` line per URL, the moment each one
+    is downloaded + uploaded (see `ScrapeService.stream_import_to_library`)."""
+    return StreamingResponse(
+        service.stream_import_to_library(body.urls, body.referer), media_type="application/x-ndjson"
+    )
 
 
 @router.post("/sections/{section_id}/pages/from-library", response_model=list[PageInfo])

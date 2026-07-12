@@ -82,9 +82,9 @@ delegates — no branching here.
 | `PATCH /read/sections/{id}/pages/order` | `ReadService.reorder_pages(id, body)` |
 | `POST /read/scrape` | `ScrapeService.scrape(url)` → candidate image URLs |
 | `POST /read/sections/{id}/import` | `ScrapeService.import_into(id, body)` — download + upload + record (straight into a section) |
-| `GET /read/library` | `ReadService.list_library()` → the user's pool, oldest-first |
-| `POST /read/library` | `ReadService.record_library_assets(body)` — persist rows for pool files the frontend already uploaded |
-| `POST /read/library/import` | `ScrapeService.import_to_library(body)` — download chosen scrape candidates into the pool |
+| `GET /read/library` | `ReadService.list_library()` → the user's pool, in collect order |
+| `POST /read/library` | `ReadService.stream_record_library_assets(body)` — NDJSON stream, one line per pool file the frontend already uploaded |
+| `POST /read/library/import` | `ScrapeService.stream_import_to_library(body)` — NDJSON stream, one line per scrape candidate downloaded into the pool |
 | `POST /read/sections/{id}/pages/from-library` | `ReadService.organize_from_library(id, body)` — move ordered pool assets into a section |
 | `DELETE /read/library/{id}` | `ReadService.discard_library_asset(id)` (also deletes the Storage file) |
 
@@ -99,10 +99,15 @@ height}]`; the service validates the paths sit under this user's prefix before
 inserting.
 
 It also owns the **pool** side (`library_assets`):
-- `list_library()` — the user's unassigned pool, oldest-first (a collection queue —
-  freshly collected images appear at the bottom).
-- `record_library_assets(body)` — the pool twin of `record_pages`: writes rows for
-  files the frontend uploaded straight to `{user_id}/_pool/…` (validates the prefix).
+- `list_library()` — the user's unassigned pool, in collect order (a collection queue —
+  freshly collected images appear at the bottom). Ordered by `position`, not
+  `created_at`, and excludes any row still mid-collect (`storage_path IS NULL` —
+  see `services/library_stream.py` below): a batch's images can finish
+  downloading/uploading out of order, so `position` is fixed from the batch's
+  original order at *reservation* time, before any of the slow work starts —
+  immune to which item actually finishes first.
+- `stream_record_library_assets(records)` — the pool twin of `record_pages`, but
+  streamed: see `services/library_stream.py`.
 - `organize_from_library(section_id, ordered_asset_ids)` — the pool → section move. For
   each chosen asset (in the given order) it inserts a `manga_pages` row pointing at the
   asset's existing `storage_path` and deletes the `library_assets` row, in **one
@@ -119,12 +124,34 @@ Deliberately split across requests so the user picks in between:
    download the image **server-side** (browsers can't fetch cross-origin/hotlink-
    protected images), upload it to the `manga` bucket under the user's section prefix
    via `shared/storage/` (service-role), then record the `manga_pages` row in order.
-3. `import_to_library(urls)` — the **pool** path (the decoupled flow): same
-   server-side download + service-role upload, but writes to `{user_id}/_pool/…` and
-   records `library_assets` rows instead of pages. This is what lets a user scrape
-   across many sessions into one pool, then organize later via
-   `ReadService.organize_from_library`. Both import paths share the same
-   download+upload helper — only the destination prefix and the table differ.
+   Still a single batched response (in scope: reordering already lives in the
+   reader, not here — see *Reading — fast & modern* in the frontend doc).
+3. `stream_import_to_library(urls)` — the **pool** path (the decoupled flow), now
+   streamed: see `services/library_stream.py`.
+
+### `services/library_stream.py` — shared streaming-collect orchestration
+Reused by both `stream_record_library_assets` and `stream_import_to_library` — the
+two ways images land in the pool. `stream_collect(repo, user_id, items, concurrency,
+source_url, prepare)`:
+1. Reserves one placeholder row per item upfront, via
+   `ReadRepository.reserve_library_asset_slots` — real `library_assets` rows, with
+   `position` (and `source_url`, when already known) fixed immediately, but
+   `storage_path` left `NULL` until that item's work finishes. This is what lets
+   `position` reflect the batch's *original* order regardless of which item's
+   download/upload actually completes first, without needing a separate counter
+   table — see `reserve_library_asset_slots`'s docstring for the concurrency-safety
+   argument.
+2. Runs `prepare(item)` concurrently (bounded by `concurrency`) — the flow-specific
+   work (download+upload for scrape, prefix validation for upload-record).
+3. The moment each item's `prepare` resolves, fills in its reserved row
+   (`fill_library_asset`) and yields one `LibraryStreamItem` NDJSON line — in
+   whatever order items actually finish, not request order (the frontend keys off
+   `index`, not line order). A failed item's reserved row is deleted rather than
+   left half-filled, and its own `LibraryStreamItem` reports `ok: false`.
+
+The request-scoped `AsyncSession` is one connection — concurrent tasks can't
+`flush()`/`commit()` on it simultaneously, so the per-item DB write (not the slow
+`prepare()` work) is serialized through an `asyncio.Lock`.
 
 ### `scraper.py` — extracted component
 Owns the fetch + HTML-parsing complexity (its own testable invariants ⇒ Component
@@ -148,10 +175,15 @@ All DB access for the four tables, every method filtering/joining on ownership:
 `list_mangas(user_id)`, `get_manga(id, user_id)`, `create_manga`, `update_manga`,
 `delete_manga`, `create_section`, `delete_section`, `list_pages(section_id)`,
 `insert_pages(rows)`, `set_positions(...)`, plus the pool:
-`list_library(user_id)`, `insert_library_assets(rows)`, `get_library_assets(ids,
-user_id)`, `delete_library_assets(ids, user_id)`. `organize_from_library` composes
-`get_library_assets` + `insert_pages` + `delete_library_assets` in one transaction.
-Returns `None`/empty when not owned so the router maps to 404.
+`list_library(user_id)`, `count_library_assets(user_id)` (counts reserved-but-
+unfilled slots too — deliberately no `storage_path` filter, unlike `list_library`),
+`reserve_library_asset_slots(user_id, source_urls)` (the upfront reservation step —
+see `services/library_stream.py`), `fill_library_asset(asset_id, fields)` (completes
+a reserved slot), `get_library_assets(ids, user_id)`, `delete_library_assets(ids,
+user_id)`.
+`organize_from_library` composes `get_library_assets` + `insert_pages` +
+`delete_library_assets` in one transaction. Returns `None`/empty when not owned so
+the router maps to 404.
 
 ### `models.py` — ORM mirror
 `Manga`, `MangaSection`, `MangaPage`, `LibraryAsset` — typed views of the

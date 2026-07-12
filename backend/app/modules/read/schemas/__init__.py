@@ -27,7 +27,13 @@ Quick reference — which way does it cross the wire?
                                     PageInfo, LibraryAssetInfo, ScrapeResult,
                                     ScrapeCandidate
 """
-from .library import CoverFromLibraryRequest, LibraryAssetInfo, LibraryAssetRecord, OrganizeRequest
+from .library import (
+    CoverFromLibraryRequest,
+    LibraryAssetInfo,
+    LibraryAssetRecord,
+    LibraryStreamItem,
+    OrganizeRequest,
+)
 from .manga import MangaCreate, MangaDetail, MangaSummary, MangaUpdate
 from .page import PageInfo, PageRecord, ReorderRequest
 from .scrape import ImportRequest, LibraryImportRequest, ScrapeCandidate, ScrapeRequest, ScrapeResult
@@ -42,6 +48,7 @@ __all__ = [
     "PageRecord",
     "ReorderRequest",
     "LibraryAssetRecord",
+    "LibraryStreamItem",
     "OrganizeRequest",
     "CoverFromLibraryRequest",
     "ScrapeRequest",

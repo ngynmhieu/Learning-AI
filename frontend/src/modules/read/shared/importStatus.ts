@@ -4,4 +4,4 @@
  *  don't end up depending on a feature (shared code must not depend on
  *  business modules). Feature hooks producing this status import it from
  *  here too, rather than one feature exporting it for the others. */
-export type ImportStatus = "importing" | "done";
+export type ImportStatus = "importing" | "done" | "error";

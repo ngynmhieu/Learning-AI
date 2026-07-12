@@ -1,0 +1,1 @@
+export { useSetMangaCover } from "./useSetMangaCover";

@@ -7,15 +7,15 @@ import { readApi } from "../../../shared";
  *  removes it from the library in one step, so the local collection state is
  *  merged straight from that response via `applyUpdate`, not re-PATCHed
  *  through `update`. */
-export function useSetMangaCoverFromLibrary(mangaId: string) {
+export function useSetMangaCover(mangaId: string) {
   const { applyUpdate } = useMangaCollection();
   const [setting, setSetting] = useState(false);
 
-  const setCoverFromLibrary = useCallback(
+  const setCover = useCallback(
     async (assetId: string) => {
       setSetting(true);
       try {
-        const manga = await readApi.setMangaCoverFromLibrary(mangaId, assetId);
+        const manga = await readApi.setMangaCover(mangaId, assetId);
         applyUpdate(manga);
       } finally {
         setSetting(false);
@@ -24,5 +24,5 @@ export function useSetMangaCoverFromLibrary(mangaId: string) {
     [mangaId, applyUpdate]
   );
 
-  return { setCoverFromLibrary, setting };
+  return { setCover, setting };
 }

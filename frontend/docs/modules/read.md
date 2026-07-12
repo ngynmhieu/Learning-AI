@@ -41,18 +41,21 @@ frontend/src/
         SectionGrid/                 ← a tab's sections (+ SectionCard)
         UploadTray/                  ← local-file staging with drag-reorder (+ components)
         ScrapePicker/                ← paste URL → pick + order scraped images (+ components)
-        PoolGrid/                    ← the pool: select + order assets, then organize/discard (+ components)
+        LibraryHeader.tsx            ← pool page header: back link + Edit/Done toggle
+        LibraryCollect.tsx           ← pool page: the scrape/upload collect section
+        LibraryStorage.tsx           ← pool page: selection toolbar + PoolGrid + lightbox
+        PoolGrid/                    ← the pool grid itself: select + discard (+ components)
         Reader/                      ← virtualized page viewer + controls (+ components)
       features/                      ← grouped by the page each fulfills an action for
         manga-collection/
           create-manga/              ← create a series
-          set-manga-cover-from-library/  ← pick a library asset as a manga's cover
+          set-manga-cover/           ← pick a library asset as a manga's cover
         manga-sections/
           create-section/            ← add a volume/chapter
           delete-section/            ← remove a volume/chapter
-          set-section-cover-from-library/  ← pick a library asset as a section's cover
+          set-section-cover/         ← pick a library asset as a section's cover
         manga-reader/
-          organize-from-library/     ← selected library assets (ordered) → POST /read/sections/:id/pages/from-library
+          insert-from-library/       ← selected library assets (ordered) → POST /read/sections/:id/pages/from-library
           reorder-pages/             ← drag-reorder → PATCH …/pages/order
         library/
           collect-to-library/        ← scraped/uploaded images → POST /read/library/import or /read/library
@@ -122,20 +125,31 @@ over time, then drain into series when you're ready. It exists because scraping 
 uploading often happen *before* you've decided the target volume/chapter — you gather
 first, organize later.
 
-**Filling the library** (`collect-to-library`):
+**Filling the library** (`collect-to-library`) — each item reveals in the pool the
+moment *it* finishes, not batched to the end. Both endpoints stream one NDJSON
+`LibraryStreamItem` line per item as the backend finishes it (see
+`backend/docs/modules/read.md` → `services/library_stream.py`); the frontend reads
+that stream via `shared/lib/ndjson.ts`'s `streamNdjson` (a plain `fetch` +
+`ReadableStream` reader, not `EventSource`, since the browser's native SSE API can't
+carry this app's Bearer token). `position` is still fixed from each batch's
+*original* order — reserved upfront, before any item's work starts — immune to
+which item actually finishes first:
 - *Scrape → pool:* same `ScrapePicker` candidate flow, but the chosen URLs go to
-  `POST /read/library/import` (backend downloads → `{userId}/_pool/…` → records
-  `library_assets`). You can repeat this across many sessions; assets accumulate.
-- *Upload → pool:* same `UploadTray`, uploading straight to `{userId}/_pool/…` via
-  `shared/lib/storage.ts`, then `POST /read/library` records the rows.
+  `POST /read/library/import`, streamed — the backend downloads each one
+  (bounded concurrency) → uploads to `{userId}/_pool/…` → records it, reporting it
+  the instant that URL is done. You can repeat this across many sessions; assets
+  accumulate.
+- *Upload → pool:* same `UploadTray`; files upload to `{userId}/_pool/…` via
+  `shared/lib/storage.ts` concurrently first (bytes only — order-independent),
+  then `POST /read/library` streams the (fast) record step for all of them.
 
-**Draining the library** (`organize-from-library`):
+**Draining the library** (`insert-from-library`):
 1. `PoolGrid` shows the pool (assets resolved to previews via batch signed URLs, like
    the reader) and lets you **select + drag-order** the ones for a section.
 2. Pick a target manga + volume/chapter (or create one), then
    `POST /read/sections/{id}/pages/from-library` with the ordered `asset_ids`.
 3. The backend turns each into a `manga_page` (reusing the same Storage object — no
-   re-upload) and removes it from the pool. The organized assets **disappear from the
+   re-upload) and removes it from the pool. The inserted assets **disappear from the
    pool grid** and appear as the section's pages — your "gets a manga link, leaves the
    pool."
 
@@ -170,14 +184,30 @@ It reads the same authenticated Supabase session the rest of the app uses, so St
 RLS sees the logged-in user. This is the one sanctioned place to use the Supabase
 client for Storage — features/entities call this, not the SDK directly.
 
+## `shared/lib/ndjson.ts` (new shared infra)
+
+A thin, generic streaming-fetch wrapper — for endpoints that stream newline-
+delimited JSON instead of returning one JSON body:
+
+```ts
+streamNdjson<T>(input: string, init?: RequestInit): AsyncGenerator<T>
+```
+
+Goes through `fetchWithToken` (so streamed endpoints authenticate the same way as
+every other call) rather than the browser's native `EventSource`, which can't send
+a custom `Authorization` header. `readApi.ts`'s `requestStream<T>()` wraps this with
+the same camelCase pipeline `request<T>()` uses for normal calls — currently the
+only consumers are `importToLibrary`/`recordLibraryAssets` (see *The image pool*).
+
 ## Entities
 
 - `manga` — `Manga` (`id, title, coverPath, updatedAt`), the library list provider.
 - `section` — `Section` (`id, mangaId, kind: "volume"|"chapter", number, title`).
 - `page` — `Page` (`id, storagePath, position, width, height`) + reader progress state.
-- `library-asset` — `LibraryAsset` (`id, storagePath, sourceUrl, width, height,
-  createdAt`) + the pool list provider (newest-first; no `position` — order is chosen
-  at organize time).
+- `library-asset` — `LibraryAsset` (`id, storagePath, sourceUrl, position, width,
+  height, createdAt`) + the pool list provider (oldest-first by `position`, assigned
+  by the backend from each collect batch's original order — a page's actual reading
+  order is chosen separately, at organize time).
 
 ## Design notes
 

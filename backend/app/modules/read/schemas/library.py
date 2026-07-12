@@ -56,6 +56,19 @@ class LibraryAssetInfo(BaseModel):
     id: uuid.UUID
     storage_path: str
     source_url: str | None = None
+    position: int
     width: int | None = None
     height: int | None = None
     created_at: datetime
+
+
+class LibraryStreamItem(BaseModel):
+    """One NDJSON line of a `/read/library` or `/read/library/import` stream —
+    each collected item is reported the moment its own download/upload finishes,
+    not batched to the end. `index` is the item's position in the *request*
+    array, not arrival order (items complete concurrently) — the frontend must
+    key off `index`, never assume line order matches request order."""
+    index: int
+    ok: bool
+    asset: LibraryAssetInfo | None = None
+    error: str | None = None

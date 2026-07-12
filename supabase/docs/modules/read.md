@@ -15,7 +15,9 @@ The generator has stamped them into flat migrations, applied in file order:
 `add_mangas` → `add_manga_sections` → `add_manga_pages` → `add_manga_storage` →
 `add_library_assets` (the first three FK into the previous, storage third; `library_assets`
 FKs only `auth.users`, so it has no ordering dependency on the others — it was simply
-generated last). Next step: `supabase db push`.
+generated last) → `add_library_assets_position` (adds `position`, hand-written ALTER +
+backfill) → `alter_library_assets_storage_path` (loosens `storage_path` to nullable, for
+the streaming-collect reservation described below). Next step: `supabase db push`.
 
 ## Why these are SQL migrations (not SQLAlchemy)
 
@@ -191,17 +193,21 @@ ownership through**, so it carries `user_id` directly and its RLS is keyed on th
 create table if not exists public.library_assets (
   id           uuid        primary key default gen_random_uuid(),
   user_id      uuid        not null references auth.users (id) on delete cascade,
-  storage_path text        not null,   -- object path in the `manga` bucket, under {user_id}/_pool/
+  storage_path text,                   -- object path in the `manga` bucket; NULL while a
+                                        -- reserved slot's download/upload is still in flight
   source_url   text,                   -- where it was scraped from; NULL for direct uploads
+  position     integer     not null,   -- 0-based collect order (assigned per user, not per-request-completion order)
   width        integer,                -- intrinsic px (nullable until known)
   height       integer,
   created_at   timestamptz not null default now()
 );
 
--- Pool view: a user's unassigned images, oldest first (a collection queue —
--- freshly collected images land at the bottom).
-create index if not exists library_assets_user_created_idx
-  on public.library_assets (user_id, created_at asc);
+-- Pool view: a user's unassigned images, in collect order (a collection queue —
+-- freshly collected images land at the bottom). `position` (not `created_at`) is
+-- authoritative: a batch's images can finish downloading/uploading out of order,
+-- but `position` is assigned from the batch's original order, not completion time.
+create unique index if not exists library_assets_user_position_idx
+  on public.library_assets (user_id, position);
 
 -- RLS: owner-keyed directly on user_id (no manga to join through).
 alter table public.library_assets enable row level security;
@@ -214,8 +220,13 @@ create policy "Owner can delete their library assets"
   on public.library_assets for delete using (auth.uid() = user_id);
 ```
 
-> No update policy: a pool asset is immutable — it's either created (scrape/upload),
-> consumed into a `manga_page`, or discarded. Nothing edits it in place.
+> No update policy for regular (user-scoped) access — the backend connects via a
+> privileged role that bypasses RLS regardless (ownership is enforced in Python, not
+> SQL, per this module's stated pattern), and it's the only thing that ever writes
+> to this table. It *does* update rows in place now: a streaming collect reserves a
+> placeholder row (`storage_path = NULL`, `position` fixed) before that item's
+> download/upload starts, then fills it in via `UPDATE` once the work finishes — see
+> `backend/docs/modules/read.md` → `services/library_stream.py`.
 
 ## `manga` storage bucket
 
@@ -286,7 +297,9 @@ create policy "Delete own manga files"
   mangas). If shared/reused-across-mangas is ever wanted, keep the pool row and add a
   join table instead of deleting — a later change.
 - **Reading order** is `manga_pages.position`; section order within a tab is
-  `manga_sections.number`. The pool has no `position` column of its own — it's browsed
-  oldest-first by `created_at` (a collection queue, freshly collected images at the
-  bottom); a page's actual reading `position` is chosen at organize time, from the
-  order the pool items were picked in, not from this browse order.
+  `manga_sections.number`. The pool is browsed by its own `library_assets.position`
+  (a collection queue, freshly collected images at the bottom) — assigned by the
+  backend from each collect batch's original request order, not `created_at`,
+  since a batch's images can finish downloading/uploading out of order. A page's
+  actual reading `position` is chosen at organize time, from the order the pool
+  items were picked in, not from this browse order.

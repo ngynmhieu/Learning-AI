@@ -6,17 +6,23 @@
 create table if not exists public.library_assets (
   id           uuid        primary key default gen_random_uuid(),
   user_id      uuid        not null references auth.users (id) on delete cascade,
-  storage_path text        not null,   -- object path in the `manga` bucket, under {user_id}/_pool/
+  storage_path text,                   -- object path in the `manga` bucket, under {user_id}/_pool/;
+                                        -- NULL while a reserved slot's download/upload is still in
+                                        -- flight (a streaming collect reserves the row, with its
+                                        -- position fixed, before the image itself is ready)
   source_url   text,                   -- where it was scraped from; NULL for direct uploads
+  position     integer     not null,   -- 0-based collect order (assigned per user, not per-request-completion order)
   width        integer,                -- intrinsic px (nullable until known)
   height       integer,
   created_at   timestamptz not null default now()
 );
 
--- Pool view: a user's unassigned images, oldest first (a collection queue —
--- freshly collected images land at the bottom).
-create index if not exists library_assets_user_created_idx
-  on public.library_assets (user_id, created_at asc);
+-- Pool view: a user's unassigned images, in collect order (a collection queue —
+-- freshly collected images land at the bottom). `position` (not `created_at`) is
+-- authoritative: a batch's images can finish downloading/uploading out of order,
+-- but `position` is assigned from the batch's original order, not completion time.
+create unique index if not exists library_assets_user_position_idx
+  on public.library_assets (user_id, position);
 
 -- RLS: owner-keyed directly on user_id (no manga to join through).
 alter table public.library_assets enable row level security;

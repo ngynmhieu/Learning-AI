@@ -1,14 +1,14 @@
 // --- manga-collection ---
 export { useCreateManga } from "./manga-collection/create-manga";
-export { useSetMangaCoverFromLibrary } from "./manga-collection/set-manga-cover-from-library";
+export { useSetMangaCover } from "./manga-collection/set-manga-cover";
 
 // --- manga-sections ---
 export { useCreateSection } from "./manga-sections/create-section";
 export { useDeleteSection } from "./manga-sections/delete-section";
-export { useSetSectionCoverFromLibrary } from "./manga-sections/set-section-cover-from-library";
+export { useSetSectionCover } from "./manga-sections/set-section-cover";
 
 // --- manga-reader ---
-export { useOrganizeFromLibrary } from "./manga-reader/organize-from-library";
+export { useInsertFromLibrary } from "./manga-reader/insert-from-library";
 export { useReorderPages } from "./manga-reader/reorder-pages";
 
 // --- library ---

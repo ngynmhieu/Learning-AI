@@ -42,22 +42,19 @@ export function usePoolAssets() {
     };
   }, []);
 
-  /** Replace the trailing `count` assets with `next` — the newest assets land at
-   *  the bottom, matching the backend's oldest-first order. Plain appending
-   *  (`count: 0`) is the simple case; a growing in-flight collect batch calls this
-   *  repeatedly with its always-correctly-ordered "resolved so far" set and the
-   *  count it last showed, so each call reveals newly-finished items immediately
-   *  (in the right order) without duplicating what's already visible — see
-   *  `useCollectToLibrary`. */
-  const replaceTail = useCallback((count: number, next: LibraryAsset[]) => {
-    setAssets((prev) => [...prev.slice(0, prev.length - count), ...next]);
+  /** Add one just-collected asset, sorted into place by `position` — collect
+   *  now streams items in *completion* order (see `useCollectToLibrary`), not
+   *  the batch's original order, so a plain push would visually scramble the
+   *  very ordering `position` exists to guarantee. */
+  const appendAsset = useCallback((next: LibraryAsset) => {
+    setAssets((prev) => [...prev, next].sort((a, b) => a.position - b.position));
   }, []);
 
-  /** Drop assets that were organized into a section or discarded. */
+  /** Drop assets that were inserted into a section or discarded. */
   const removeAssets = useCallback((ids: string[]) => {
     const gone = new Set(ids);
     setAssets((prev) => prev.filter((asset) => !gone.has(asset.id)));
   }, []);
 
-  return { assets, loading, error, refresh, replaceTail, removeAssets };
+  return { assets, loading, error, refresh, appendAsset, removeAssets };
 }
