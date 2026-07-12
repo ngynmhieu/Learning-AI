@@ -198,9 +198,10 @@ create table if not exists public.library_assets (
   created_at   timestamptz not null default now()
 );
 
--- Pool view: a user's unassigned images, newest first.
+-- Pool view: a user's unassigned images, oldest first (a collection queue —
+-- freshly collected images land at the bottom).
 create index if not exists library_assets_user_created_idx
-  on public.library_assets (user_id, created_at desc);
+  on public.library_assets (user_id, created_at asc);
 
 -- RLS: owner-keyed directly on user_id (no manga to join through).
 alter table public.library_assets enable row level security;
@@ -285,5 +286,7 @@ create policy "Delete own manga files"
   mangas). If shared/reused-across-mangas is ever wanted, keep the pool row and add a
   join table instead of deleting — a later change.
 - **Reading order** is `manga_pages.position`; section order within a tab is
-  `manga_sections.number`. The pool itself is unordered (browsed newest-first); order is
-  chosen at organize time, when the pages get their `position`.
+  `manga_sections.number`. The pool has no `position` column of its own — it's browsed
+  oldest-first by `created_at` (a collection queue, freshly collected images at the
+  bottom); a page's actual reading `position` is chosen at organize time, from the
+  order the pool items were picked in, not from this browse order.

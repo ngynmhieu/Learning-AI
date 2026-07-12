@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Upload, Globe, Trash2, Pencil, Check } from "lucide-react";
 import { LoadingDialog, Tabs } from "@/shared/ui";
@@ -19,7 +19,12 @@ const COLLECT_MODE_TABS: { value: CollectMode; label: string; icon: typeof Globe
  *  into a manga's volume/chapter happens from that section, not here. */
 export function PoolPage() {
   const navigate = useNavigate();
-  const { assets, loading, error, addAssets, removeAssets } = usePoolAssets();
+  const { assets, loading, error, replaceTail, removeAssets } = usePoolAssets();
+  // Tracks how much of the *current* collect batch is already shown, so each
+  // progressive update from useCollectToPool replaces just that trailing
+  // region instead of duplicating it. Only one collect runs at a time
+  // (`collecting` disables the other picker's confirm button), so one ref works.
+  const shownBatchCountRef = useRef(0);
   const urls = useSignedUrls(assets.map((a) => a.storagePath));
 
   const [mode, setMode] = useState<CollectMode>("scrape");
@@ -98,7 +103,11 @@ export function PoolPage() {
               importStatus={importStatus}
               importLabel="Collect"
               onImport={async (urls, referer) => {
-                addAssets(await importUrlsToPool(urls, referer));
+                shownBatchCountRef.current = 0;
+                await importUrlsToPool(urls, referer, (resolvedSoFar) => {
+                  replaceTail(shownBatchCountRef.current, resolvedSoFar);
+                  shownBatchCountRef.current = resolvedSoFar.length;
+                });
               }}
             />
           ) : (
@@ -107,7 +116,11 @@ export function PoolPage() {
               uploadStatus={importStatus}
               confirmLabel="Collect"
               onConfirm={async (items) => {
-                addAssets(await uploadFilesToPool(items));
+                shownBatchCountRef.current = 0;
+                await uploadFilesToPool(items, (resolvedSoFar) => {
+                  replaceTail(shownBatchCountRef.current, resolvedSoFar);
+                  shownBatchCountRef.current = resolvedSoFar.length;
+                });
               }}
             />
           )}

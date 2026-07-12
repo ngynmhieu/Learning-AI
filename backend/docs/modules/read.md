@@ -82,7 +82,7 @@ delegates — no branching here.
 | `PATCH /read/sections/{id}/pages/order` | `ReadService.reorder_pages(id, body)` |
 | `POST /read/scrape` | `ScrapeService.scrape(url)` → candidate image URLs |
 | `POST /read/sections/{id}/import` | `ScrapeService.import_into(id, body)` — download + upload + record (straight into a section) |
-| `GET /read/library` | `ReadService.list_library()` → the user's pool, newest-first |
+| `GET /read/library` | `ReadService.list_library()` → the user's pool, oldest-first |
 | `POST /read/library` | `ReadService.record_library_assets(body)` — persist rows for pool files the frontend already uploaded |
 | `POST /read/library/import` | `ScrapeService.import_to_library(body)` — download chosen scrape candidates into the pool |
 | `POST /read/sections/{id}/pages/from-library` | `ReadService.organize_from_library(id, body)` — move ordered pool assets into a section |
@@ -99,7 +99,8 @@ height}]`; the service validates the paths sit under this user's prefix before
 inserting.
 
 It also owns the **pool** side (`library_assets`):
-- `list_library()` — the user's unassigned pool, newest-first.
+- `list_library()` — the user's unassigned pool, oldest-first (a collection queue —
+  freshly collected images appear at the bottom).
 - `record_library_assets(body)` — the pool twin of `record_pages`: writes rows for
   files the frontend uploaded straight to `{user_id}/_pool/…` (validates the prefix).
 - `organize_from_library(section_id, ordered_asset_ids)` — the pool → section move. For

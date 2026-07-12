@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { readApi } from "../../../shared";
 import type { LibraryAsset } from "../libraryAsset.types";
 
-/** The pool list (newest-first, matching the backend order) plus the local
+/** The pool list (oldest-first, matching the backend order) plus the local
  *  mutations the pool workflows need. Hook rather than context: the pool page
  *  is its only consumer. */
 export function usePoolAssets() {
@@ -42,9 +42,15 @@ export function usePoolAssets() {
     };
   }, []);
 
-  /** Prepend freshly collected assets (scrape import / upload just returned them). */
-  const addAssets = useCallback((newAssets: LibraryAsset[]) => {
-    setAssets((prev) => [...newAssets, ...prev]);
+  /** Replace the trailing `count` assets with `next` — the newest assets land at
+   *  the bottom, matching the backend's oldest-first order. Plain appending
+   *  (`count: 0`) is the simple case; a growing in-flight collect batch calls this
+   *  repeatedly with its always-correctly-ordered "resolved so far" set and the
+   *  count it last showed, so each call reveals newly-finished items immediately
+   *  (in the right order) without duplicating what's already visible — see
+   *  `useCollectToPool`. */
+  const replaceTail = useCallback((count: number, next: LibraryAsset[]) => {
+    setAssets((prev) => [...prev.slice(0, prev.length - count), ...next]);
   }, []);
 
   /** Drop assets that were organized into a section or discarded. */
@@ -53,5 +59,5 @@ export function usePoolAssets() {
     setAssets((prev) => prev.filter((asset) => !gone.has(asset.id)));
   }, []);
 
-  return { assets, loading, error, refresh, addAssets, removeAssets };
+  return { assets, loading, error, refresh, replaceTail, removeAssets };
 }

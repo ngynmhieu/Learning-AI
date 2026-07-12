@@ -234,10 +234,12 @@ class ReadRepository:
     # --- library pool --------------------------------------------------------
 
     async def list_library(self, user_id: uuid.UUID) -> list[LibraryAsset]:
+        """Oldest first — the pool reads top-to-bottom as a collection queue,
+        with freshly collected images landing at the bottom."""
         result = await self._session.execute(
             select(LibraryAsset)
             .where(LibraryAsset.user_id == user_id)
-            .order_by(LibraryAsset.created_at.desc())
+            .order_by(LibraryAsset.created_at.asc())
         )
         return list(result.scalars().all())
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Globe, Upload, X } from "lucide-react";
 import { Modal, Tabs, Tooltip } from "@/shared/ui";
 import { usePoolAssets, type LibraryAsset, type Page } from "../../entities";
@@ -41,10 +41,13 @@ const COLLECT_MODE_TABS: { value: CollectMode; label: string; icon: typeof Globe
  *  own separate straight-to-target upload/scrape path to keep in sync. */
 export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps) {
   const [mode, setMode] = useState<CollectMode>("scrape");
-  const { assets, loading, addAssets, removeAssets } = usePoolAssets();
+  const { assets, loading, replaceTail, removeAssets } = usePoolAssets();
   const urls = useSignedUrls(assets.map((a) => a.storagePath));
   const { picked, setPicked, onItemClick: multiItemClick } = useClickSelect(assets.map((a) => a.id));
   const { importUrlsToPool, uploadFilesToPool, collecting, importStatus } = useCollectToPool();
+  // How much of the current collect batch is already shown in the pool grid —
+  // only one collect runs at a time (`collecting` disables the other picker).
+  const shownBatchCountRef = useRef(0);
 
   // Rules of hooks: all three targets' hooks are called every render, each
   // holding a harmless id when its target kind isn't the active one — only
@@ -117,7 +120,11 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
             importStatus={importStatus}
             importLabel="Collect"
             onImport={async (scrapedUrls, referer) => {
-              addAssets(await importUrlsToPool(scrapedUrls, referer));
+              shownBatchCountRef.current = 0;
+              await importUrlsToPool(scrapedUrls, referer, (resolvedSoFar) => {
+                replaceTail(shownBatchCountRef.current, resolvedSoFar);
+                shownBatchCountRef.current = resolvedSoFar.length;
+              });
             }}
           />
         ) : (
@@ -126,7 +133,11 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
             uploadStatus={importStatus}
             confirmLabel="Collect"
             onConfirm={async (items) => {
-              addAssets(await uploadFilesToPool(items));
+              shownBatchCountRef.current = 0;
+              await uploadFilesToPool(items, (resolvedSoFar) => {
+                replaceTail(shownBatchCountRef.current, resolvedSoFar);
+                shownBatchCountRef.current = resolvedSoFar.length;
+              });
             }}
           />
         )}

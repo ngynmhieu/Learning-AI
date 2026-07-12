@@ -18,9 +18,10 @@ create table if not exists public.library_assets (
   created_at   timestamptz not null default now()
 );
 
--- Pool view: a user's unassigned images, newest first.
+-- Pool view: a user's unassigned images, oldest first (a collection queue —
+-- freshly collected images land at the bottom).
 create index if not exists library_assets_user_created_idx
-  on public.library_assets (user_id, created_at desc);
+  on public.library_assets (user_id, created_at asc);
 
 -- RLS: owner-keyed directly on user_id (no manga to join through).
 alter table public.library_assets enable row level security;
