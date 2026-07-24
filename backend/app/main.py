@@ -8,10 +8,12 @@ from supabase import create_client
 
 from .core.config import settings
 from .shared.llm import LlmClient
+from .shared.storage import StorageClient
 from .modules.chat import router as chat_router
 from .modules.chat.services import ModelService
 from .modules.auth import router as auth_router
 from .modules.auth.service import AuthService
+from .modules.read import router as read_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,6 +41,12 @@ async def lifespan(app: FastAPI):
     supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
     app.state.auth_service = AuthService(supabase_client)
 
+    # Service-role client for the read module's scrape-import path (server-side
+    # download -> upload) — bypasses Storage RLS, so it is never exposed to the frontend.
+    app.state.storage_client = StorageClient.create(
+        settings.supabase_url, settings.supabase_service_role_key, settings.manga_bucket
+    )
+
     logger.info("FastAPI app ready")
     yield
 
@@ -46,6 +54,7 @@ async def lifespan(app: FastAPI):
     app.state.model_service = None
     app.state.auth_service = None
     app.state.llm_client = None
+    app.state.storage_client = None
 
 
 def create_app() -> FastAPI:
@@ -66,6 +75,7 @@ def create_app() -> FastAPI:
 
     app.include_router(chat_router)
     app.include_router(auth_router)
+    app.include_router(read_router)
 
     @app.get("/")
     async def root():

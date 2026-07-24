@@ -217,6 +217,57 @@ The `profiles` table is the second case: the table + FK + RLS live in the migrat
 
 ---
 
+## Storage Buckets
+
+Supabase **Storage** is an S3-like object store in the same project. Large binary
+content (e.g. the `read` module's manga page images) lives here, **not** in Postgres
+columns — the database stores only the object **path** as text. Buckets are schema too:
+they're created and secured through **the same migration flow** as tables (the bucket
+row and its policies live in Supabase's internal `storage` schema, which SQLAlchemy
+cannot express), authored as a `schema/<module>/storage_*.sql` fragment.
+
+### Public vs private
+
+| | Public bucket | Private bucket *(default for owned media)* |
+|---|---|---|
+| Who can read a file | Anyone with the URL, permanently | Only via the owner's auth token, or a short-lived **signed URL** |
+| URL | stable `…/object/public/<bucket>/<path>` | none; mint `createSignedUrl(s)` per read (expires) |
+| Use for | public assets | per-user content (manga pages, covers) |
+
+Prefer **private** for anything a user owns. Reads then use signed URLs — temporary
+CDN links minted on demand — so bytes still come from the CDN (fast), never proxied
+through the backend.
+
+### Securing a private bucket (RLS on `storage.objects`)
+
+Files are rows in `storage.objects`, so the same RLS mechanism as tables applies. Key
+the policy on the object **path**, with the owner id as the first folder segment:
+
+```sql
+insert into storage.buckets (id, name, public) values ('manga', 'manga', false)
+  on conflict (id) do nothing;
+
+create policy "Read own manga files" on storage.objects for select
+  using (bucket_id = 'manga' and (storage.foldername(name))[1] = auth.uid()::text);
+-- (+ insert / delete policies, same predicate)
+```
+
+`storage.foldername(name)` returns `text[]`; `auth.uid()` is `uuid` → cast with
+`::text`. Path convention: `<bucket>/{user_id}/...` so `[1]` is always the owner.
+
+### Who enforces what (important)
+
+Unlike plain app tables — where storage RLS is only defense-in-depth because the
+backend connects as a privileged role — **Storage RLS is actively load-bearing** when
+the **frontend accesses Storage directly** (the modern media pattern: the browser
+uploads files and mints signed URLs itself, never routing bytes through the backend).
+The backend, when it must write bytes (e.g. `read`'s scrape-import), uses the
+**service-role key**, which **bypasses** Storage RLS — so that key is server-only and
+must never reach the frontend. The DB **does not cascade-delete** Storage objects when
+a row is removed; whichever side owns the write deletes the file explicitly.
+
+---
+
 ## Workflow: Adding a Schema Change
 
 Every schema change follows these four steps:
@@ -294,8 +345,11 @@ The `project-ref` (`vjgkoauuzugfoihmtcbb`) is the ID in your Supabase dashboard 
 | Concern | Location | Why |
 |---|---|---|
 | Table + FK into `auth.users` + RLS | `supabase/migrations/*.sql` | SQLAlchemy cannot express cross-schema FKs or RLS |
+| Storage bucket + its RLS policies | `supabase/migrations/*.sql` (`storage.buckets` + `storage.objects`) | Buckets/policies live in Supabase's internal `storage` schema |
+| Large binary content (images, files) | Supabase **Storage** bucket; the DB stores only the object **path** | Postgres is for metadata, not megabytes |
 | ORM read/write view of a table | `backend/app/modules/<module>/models.py` | Python code needs typed models for queries |
 | Supabase config (URL, anon key) | `backend/app/core/config.py` + `.env.backend` | All app config lives in `core/`, not scattered |
+| Supabase **service-role** key (server-only) | `backend/app/core/config.py` + `.env.backend` | Bypasses RLS for trusted server writes; **never** sent to the frontend |
 | Google OAuth provider setup | Supabase dashboard → Authentication → Providers | One-time UI click, not codified |
 | JWT verification | `backend/app/modules/auth/service.py` | Delegated to `supabase.auth.get_user(token)` — no secret in config |
 

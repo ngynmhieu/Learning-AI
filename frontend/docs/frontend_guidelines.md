@@ -55,6 +55,82 @@ The goal is to keep the app easy to grow, easy to test, and easy to assign to te
    - Correct: `import { GradientBackground } from "@/shared/ui"`
    - Incorrect: `import { GradientBackground } from "@/shared/ui/GradientBackground"`
 
+## Loading States
+
+A page or widget's **initial data fetch** — the request that gates whether its
+primary content can render at all (page load, opening a detail view, a
+grid/list's first fetch) — must show `LoadingDialog` from `shared/ui` with
+`fullScreen={false}`, not bare text (`<p>Loading…</p>`) or a spinner. It renders
+the running-owl mascot card centered in whatever contains it, so it fills just
+that page/section instead of the whole viewport (the sidebar and rest of the
+app stay visible and interactive).
+
+```tsx
+// correct — the section that would otherwise render nothing yet
+if (!detail) return <LoadingDialog fullScreen={false} message="Fetching your manga…" />;
+
+// wrong — plain text for a load that gates real content
+if (!detail) return <p className="...">Loading…</p>;
+```
+
+`fullScreen` (the default, `true`) stays reserved for cases where nothing is
+rendered behind it yet: the post-login boot gate and the `<Suspense>` fallback
+for lazily-loaded route chunks in `app/router/index.tsx`.
+
+### Gate at the page level, not nested below other chrome
+
+The dialog must appear **before any element of the page** — a header, back
+button, or action bar must not render above/around it while the data is still
+loading. Read the loading state (or whatever hook/context provides it) in the
+page component itself and early-return the dialog there, before the page's own
+markup. Don't push the check down into a child widget that only replaces its
+own slot, leaving the header/chrome visible around a lone loading card.
+
+```tsx
+// correct — MangaCollectionPage reads the same state MangaGrid would have,
+// and gates before its header renders at all
+export function MangaCollectionPage() {
+  const { mangas, loading, error } = useMangaCollection();
+
+  if (loading && mangas.length === 0) {
+    return <LoadingDialog fullScreen={false} message="Fetching your library…" />;
+  }
+  if (error) return <p className="...">Couldn't load your library.</p>;
+
+  return (
+    <div>
+      <header>...</header>
+      <MangaGrid />
+    </div>
+  );
+}
+
+// wrong — header/toolbar always renders; only MangaGrid's own slot loads
+export function MangaCollectionPage() {
+  return (
+    <div>
+      <header>...</header>
+      <MangaGrid /> {/* shows the dialog internally, chrome above it is already visible */}
+    </div>
+  );
+}
+```
+
+If a widget used to own that check itself (e.g. `MangaGrid` reading
+`useMangaCollection()`'s `loading`/`error`), remove it once the parent page gates
+on the same state — the widget only mounts after the page has already decided
+the data is ready, so a duplicate check there is unreachable dead code.
+
+**Exceptions** — keep plain text/inline spinners for:
+- Small in-place checks inside an already-visible panel (e.g. fetching a page
+  count inside an open form) — the mascot card is sized for a page/section, not
+  a compact panel.
+- Narrow, fixed-width regions like the sidebar's conversation list — there's
+  no room for a `h-36 w-36` card.
+- Busy states for a user-initiated action already in flight (a button reading
+  "Creating…"/"Uploading…" while disabled) — that's action feedback, not a
+  page waiting to exist.
+
 ## Recommended Folder Structure
 
 ```txt
@@ -131,7 +207,7 @@ question decides where a file goes:
 
 | The file… | Goes in | Examples |
 |---|---|---|
-| creates a client/SDK instance, or wraps raw transport | `shared/lib/` | `supabase.ts` (the `createClient` singleton), `http.ts` (`fetchWithToken` — adds the session token to any request) |
+| creates a client/SDK instance, or wraps raw transport | `shared/lib/` | `supabase.ts` (the `createClient` singleton), `http.ts` (`fetchWithToken` — adds the session token to any request), `storage.ts` (Supabase Storage wrapper — `uploadToBucket`, `createSignedUrls`) |
 | names specific backend routes / payload shapes (an endpoint caller) **and is reused by more than one module** | `shared/api/`, **one file per backend domain** | `chat.ts` |
 | names specific backend routes but is used by **only one module** | that module (`modules/<m>/...`), **not** `shared/api` | auth's `/auth/me` caller → `modules/auth/features/sync-profile/` |
 | reads an environment variable | `shared/config/` | `env.ts` |
@@ -165,6 +241,21 @@ const res = await fetch("/some-route", { method: "POST", body: ... });
 
 Never import `supabase` directly in a feature or entity just to read the session token — that
 belongs in `shared/lib/http.ts`. Features call `fetchWithToken`; the token plumbing stays in one place.
+
+#### Exception: large media goes directly to Supabase Storage, not the backend
+
+`fetchWithToken` is for **backend routes** (metadata, JSON). **Binary media** — image
+files in the `read` module — does **not** flow through the backend; the frontend
+uploads files and mints read URLs **directly against Supabase Storage**, which is faster
+(CDN) and avoids proxying megabytes through FastAPI. This still rides the **same
+authenticated Supabase session** (Storage RLS sees the logged-in user), so it is not an
+auth bypass — only a different transport for bytes.
+
+Keep that access in one place too: a thin `shared/lib/storage.ts` wrapper
+(`uploadToBucket`, `createSignedUrls`) is the **only** sanctioned spot to touch the
+Supabase client for Storage — features/entities call the wrapper, never the SDK
+directly (the same discipline as `fetchWithToken`). The split in one line: **metadata →
+`fetchWithToken` (backend); bytes → `shared/lib/storage.ts` (Storage).**
 
 ### `modules/`
 This is where business domains live.

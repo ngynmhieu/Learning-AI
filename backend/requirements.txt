@@ -17,3 +17,7 @@ supabase
 
 # Optional utilities
 requests
+
+# read module — scraping component (fetch page, extract/download images)
+httpx
+selectolax

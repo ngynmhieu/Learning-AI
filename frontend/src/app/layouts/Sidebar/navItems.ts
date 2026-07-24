@@ -1,4 +1,4 @@
-import { MessageSquare } from "lucide-react";
+import { BookOpen, MessageSquare } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface NavItemConfig {
@@ -9,4 +9,5 @@ export interface NavItemConfig {
 
 export const NAV_ITEMS: NavItemConfig[] = [
   { path: "/", label: "The Docent", icon: MessageSquare },
+  { path: "/lector", label: "Lector", icon: BookOpen },
 ];

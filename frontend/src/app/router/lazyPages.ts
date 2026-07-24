@@ -5,3 +5,19 @@ import { lazy } from "react";
 export const ChatPage = lazy(() =>
   import("@/modules/chat").then((m) => ({ default: m.ChatPage }))
 );
+
+export const MangaCollectionPage = lazy(() =>
+  import("@/modules/read").then((m) => ({ default: m.MangaCollectionPage }))
+);
+
+export const MangaSectionsPage = lazy(() =>
+  import("@/modules/read").then((m) => ({ default: m.MangaSectionsPage }))
+);
+
+export const MangaReaderPage = lazy(() =>
+  import("@/modules/read").then((m) => ({ default: m.MangaReaderPage }))
+);
+
+export const LibraryPage = lazy(() =>
+  import("@/modules/read").then((m) => ({ default: m.LibraryPage }))
+);
