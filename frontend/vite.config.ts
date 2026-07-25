@@ -15,6 +15,14 @@ export default defineConfig({
     },
   },
   server: {
+    // Pinned to match the Docker frontend's published port (docker-compose.yml)
+    // and supabase/config.toml's site_url/additional_redirect_urls — Supabase
+    // only trusts redirects back to :3000, so dev and container must agree.
+    port: 3000,
+    // Fail loudly if :3000 is taken (e.g. the Docker frontend is still up)
+    // instead of silently falling back to another port and reintroducing
+    // this exact mismatch.
+    strictPort: true,
     proxy: {
       // Backend serves prefix-less routes (/chat, /health). List each here
       // so the dev server forwards them instead of serving the SPA shell.
