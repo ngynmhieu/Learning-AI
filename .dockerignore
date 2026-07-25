@@ -1,0 +1,17 @@
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.backend.example
+frontend/node_modules
+frontend/dist
+supabase/
+.git/
+.claude/
+.mcp.json
+**/.vscode
+backend/out/
+**/docs/
+*.md

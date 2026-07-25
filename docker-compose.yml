@@ -1,0 +1,52 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        - VITE_SUPABASE_URL
+        - VITE_SUPABASE_ANON_KEY
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - backend/.env.backend
+    environment:
+      MODELS_SERVICE_URL: http://models:8001/v1
+      # backend/.env.backend uses 127.0.0.1 (correct for a bare host process
+      # via run_backend.bat — see the comment there). The container needs
+      # host.docker.internal instead to reach the host-run Supabase stack.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@host.docker.internal:54322/postgres
+      SUPABASE_URL: http://host.docker.internal:54321
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  models:
+    build:
+      context: .
+      dockerfile: models/Dockerfile
+    ports:
+      # Bound to loopback only: reachable from a host-run backend
+      # (run_backend.bat), never from the LAN. This service has no auth.
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - ${USERPROFILE}/.cache/huggingface:/cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      start_period: 45m
